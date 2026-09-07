@@ -37,6 +37,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/health", tags=["system"])
+async def health_check():
+    return {"status": "ok"}
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
