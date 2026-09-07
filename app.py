@@ -24,9 +24,9 @@ from rule_engine import LegalMetrologyRuleEngine
 
 # Initialize FastAPI App
 app = FastAPI(
-    title="Legal Metrology Compliance Audit System (SIH26034)",
-    description="Automated Inspection System for Packaged Commodities Rules, 2011",
-    version="2.0.0"
+    title="SmartMetrology AI (SIH26034)",
+    description="AI-assisted extraction with deterministic Legal Metrology compliance validation",
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -53,6 +53,32 @@ rule_evaluator = LegalMetrologyRuleEngine()
 
 # In-Memory Session Audit Ledger
 AUDIT_STORE: Dict[str, Dict[str, Any]] = {}
+REVIEW_STORE: Dict[str, Dict[str, Any]] = {}
+RULE_STORE: Dict[str, Dict[str, Any]] = {
+    "LM-PC-001": {"id": "LM-PC-001", "number": "6(1)(a)", "title": "Manufacturer / Packer Declaration", "category": "General Packaged Commodity", "effective_from": "2026-01-01", "effective_to": None, "amendment": "G.S.R. 2026", "status": "ACTIVE", "version": 2026},
+    "LM-PC-005": {"id": "LM-PC-005", "number": "6(1)(da)", "title": "Consumer Grievance Details", "category": "General Packaged Commodity", "effective_from": "2026-01-01", "effective_to": None, "amendment": "2022 / 2026", "status": "ACTIVE", "version": 2026},
+    "LM-PC-006": {"id": "LM-PC-006", "number": "6(11)", "title": "Unit Sale Price Declaration", "category": "Retail Package", "effective_from": "2022-10-01", "effective_to": None, "amendment": "G.S.R. 2022", "status": "ACTIVE", "version": 2022},
+}
+
+
+class HumanReviewRequest(BaseModel):
+    inspection_id: str
+    inspector: str
+    decision: str
+    comments: Optional[str] = ""
+    timestamp: Optional[str] = None
+
+
+class RuleRecord(BaseModel):
+    id: str
+    number: str
+    title: str
+    category: str
+    effective_from: str
+    effective_to: Optional[str] = None
+    amendment: Optional[str] = None
+    status: str = "INACTIVE"
+    version: int
 
 
 def _read_image_bytes(file_bytes: bytes) -> np.ndarray:
@@ -506,6 +532,51 @@ async def export_analytics_csv():
 # ---------------------------------------------------------------------------
 # PDF EXPORT & STATIC SERVING
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# ACCOUNTABLE HUMAN REVIEW & VERSIONED RULE ADMINISTRATION
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reviews")
+async def record_human_review(payload: HumanReviewRequest):
+    """Record the accountable inspector decision separately from AI extraction."""
+    record = payload.model_dump()
+    record["timestamp"] = payload.timestamp or datetime.now().isoformat()
+    REVIEW_STORE[payload.inspection_id] = record
+    return {"saved": True, "review": record}
+
+
+@app.get("/api/reviews/{inspection_id}")
+async def get_human_review(inspection_id: str):
+    if inspection_id not in REVIEW_STORE:
+        raise HTTPException(status_code=404, detail="Human review has not been recorded.")
+    return REVIEW_STORE[inspection_id]
+
+
+@app.get("/api/rules")
+async def list_versioned_rules():
+    return {"rules": list(RULE_STORE.values()), "decision_mode": "deterministic"}
+
+
+@app.post("/api/rules", status_code=201)
+async def create_versioned_rule(payload: RuleRecord):
+    key = f"{payload.id}:v{payload.version}"
+    if key in RULE_STORE:
+        raise HTTPException(status_code=409, detail="This immutable rule version already exists.")
+    record = payload.model_dump()
+    RULE_STORE[key] = record
+    return {"created": True, "rule": record}
+
+
+@app.put("/api/rules/{rule_key:path}")
+async def update_rule_status(rule_key: str, payload: RuleRecord):
+    """Administrative metadata/status update; legal text versions remain separately addressable."""
+    if rule_key not in RULE_STORE:
+        raise HTTPException(status_code=404, detail="Rule version not found.")
+    record = payload.model_dump()
+    RULE_STORE[rule_key] = record
+    return {"updated": True, "rule": record}
+
 
 class PDFExportRequest(BaseModel):
     inspection_id: str
