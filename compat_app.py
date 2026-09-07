@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import base64
+import uuid
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import List
 
 import cv2
 import numpy as np
-from fastapi import File, Request, UploadFile
+from fastapi import File, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
 
+from app import AUDIT_STORE, _extract_product_name, ocr_pipeline, rule_evaluator
+from ocr_engine import PreprocessingPipeline
 from smart_app import app, hybrid_audit
 
 
@@ -38,7 +43,7 @@ async def immersive_frontend(request: Request, call_next):
             scripts.append('<script src="/static/login3d.js"></script>')
         if "/static/runtime-hotfix.js" not in html:
             scripts.append('<script src="/static/runtime-hotfix.js"></script>')
-        if "/static/offline.js" not in html:
+        if (STATIC_DIR / "offline.js").exists() and "/static/offline.js" not in html:
             scripts.append('<script src="/static/offline.js"></script>')
         if scripts:
             html = html.replace("</body>", "\n".join(scripts) + "\n</body>")
@@ -56,6 +61,112 @@ def _grade(score: float) -> str:
     if score >= 70:
         return "C"
     return "D"
+
+
+def _resize_image(image: np.ndarray, max_edge: int = 1050) -> np.ndarray:
+    h, w = image.shape[:2]
+    longest = max(h, w)
+    if longest <= max_edge:
+        return image
+    scale = max_edge / float(longest)
+    return cv2.resize(
+        image,
+        (max(1, int(w * scale)), max(1, int(h * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def _fast_ocr(image: np.ndarray) -> dict:
+    image = _resize_image(image)
+    enhanced_bgr, _ = PreprocessingPipeline.enhance_for_ocr(image)
+    tokens = ocr_pipeline.extract_tokens(enhanced_bgr)
+    lines = ocr_pipeline.assemble_lines(tokens)
+    text = "\n".join(line["text"] for line in lines) if lines else " ".join(token["text"] for token in tokens)
+    h, w = image.shape[:2]
+    return {
+        "image": image,
+        "image_dimensions": {"width": w, "height": h},
+        "raw_tokens": tokens,
+        "assembled_lines": lines,
+        "full_extracted_text": text,
+        "token_count": len(tokens),
+        "line_count": len(lines),
+    }
+
+
+@app.post("/api/fast-audit")
+async def fast_audit(files: List[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one product image is required")
+    if len(files) > 4:
+        raise HTTPException(status_code=400, detail="Upload up to 4 product panels for instant analysis")
+
+    panels = []
+    combined_tokens = []
+    combined_lines = []
+    combined_texts = []
+
+    for index, upload in enumerate(files):
+        data = await upload.read()
+        if len(data) > 12 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{upload.filename}: image exceeds 12 MB")
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise HTTPException(status_code=400, detail=f"{upload.filename}: unsupported or corrupted image")
+
+        result = _fast_ocr(image)
+        preview = _resize_image(result["image"], 760)
+        ok, encoded = cv2.imencode(".jpg", preview, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+        image_b64 = ""
+        if ok:
+            image_b64 = "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
+
+        panel = {
+            "panel_index": index,
+            "filename": upload.filename,
+            "image_b64": image_b64,
+            "dimensions": result["image_dimensions"],
+            "token_count": result["token_count"],
+            "line_count": result["line_count"],
+            "raw_tokens": result["raw_tokens"],
+            "ocr_text": result["full_extracted_text"],
+        }
+        panels.append(panel)
+
+        for token in result["raw_tokens"]:
+            item = dict(token)
+            item["panel_index"] = index
+            combined_tokens.append(item)
+        for line in result["assembled_lines"]:
+            item = dict(line)
+            item["panel_index"] = index
+            combined_lines.append(item)
+        combined_texts.append(result["full_extracted_text"])
+
+    aggregated_ocr = {
+        "raw_tokens": combined_tokens,
+        "assembled_lines": combined_lines,
+        "full_extracted_text": "\n\n".join(combined_texts),
+    }
+    verdict = rule_evaluator.evaluate(aggregated_ocr)
+    inspection_id = f"LM-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    primary_name = files[0].filename or "Product"
+    product_name = _extract_product_name(
+        aggregated_ocr["full_extracted_text"],
+        verdict.get("audit_report", {}),
+        primary_name,
+    )
+
+    verdict["inspection_id"] = inspection_id
+    verdict["product_name"] = product_name
+    verdict["timestamp"] = datetime.now().isoformat()
+    verdict["panels"] = panels
+    verdict["panels_count"] = len(panels)
+    verdict["analysis_mode"] = "fast_single-pass_ocr"
+    verdict["report_ready"] = True
+    verdict["report_endpoint"] = "/api/export-pdf"
+    AUDIT_STORE[inspection_id] = verdict
+    return verdict
 
 
 async def _optimize_uploads(files: List[UploadFile], max_edge: int = 1600) -> None:
