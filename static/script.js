@@ -17,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let analyticsDataCache  = null;
     let ledgerFilterStatus  = "ALL";
     let ledgerSearchQuery   = "";
+    let loaderStageTimer    = null;
 
     // ── DOM Elements ───────────────────────────
     const tabInspector      = document.getElementById("tab-btn-inspector");
@@ -118,6 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── Sample Benchmarks ──────────────────────
     document.querySelectorAll(".chip[data-sample]").forEach(btn => {
         btn.addEventListener("click", () => {
+            document.querySelectorAll(".chip[data-sample]").forEach(chip => chip.classList.toggle("active", chip === btn));
             switchView("inspector");
             setAuditMode("single");
             loadSampleAudit(btn.dataset.sample);
@@ -127,8 +129,17 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── File Upload Listener ───────────────────
     imageUpload.addEventListener("change", e => {
         if (e.target.files?.length) {
+            document.querySelectorAll(".chip[data-sample]").forEach(chip => chip.classList.remove("active"));
             handleUploadedFiles(e.target.files);
             imageUpload.value = "";
+        }
+    });
+
+    dropZone.addEventListener("click", () => imageUpload.click());
+    dropZone.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            imageUpload.click();
         }
     });
 
@@ -520,6 +531,8 @@ document.addEventListener("DOMContentLoaded", () => {
         html += `</div>`;
 
         auditContent.innerHTML = html;
+        auditContent.classList.remove("results-enter");
+        requestAnimationFrame(() => auditContent.classList.add("results-enter"));
 
         document.querySelectorAll(".focus-btn").forEach(btn => {
             btn.addEventListener("click", e => {
@@ -912,10 +925,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function showLoader(visible, text) {
         loader.classList.toggle("hidden", !visible);
+        clearInterval(loaderStageTimer);
         if (text && loaderStatusText) loaderStatusText.textContent = text;
         if (visible) {
             dropZone.classList.add("hidden");
             canvasWrapper.classList.add("hidden");
+            const stages = [text || "Preparing audit…", "Enhancing packaging image…", "Reading declarations…", "Checking statutory rules…"];
+            let stage = 0;
+            loaderStageTimer = setInterval(() => {
+                stage = Math.min(stage + 1, stages.length - 1);
+                loaderStatusText.textContent = stages[stage];
+            }, 950);
         }
     }
 
