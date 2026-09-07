@@ -1699,3 +1699,124 @@ body::after { right: -100px; top: 80px; background: rgba(168, 85, 247, .17); ani
     .audit-section { min-height: 60vh; }
     .sub-bar { overflow-x: auto; }
 }
+
+/* Vertical dashboard flow */
+html,
+body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+body {
+    display: block;
+}
+
+.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 900;
+}
+
+.sub-bar {
+    position: sticky;
+    top: 56px;
+    z-index: 850;
+    box-shadow: 0 8px 24px rgba(58, 72, 108, .07);
+}
+
+.main-viewport {
+    position: static;
+    display: block;
+    min-height: calc(100vh - 112px);
+    overflow: visible;
+    padding: 24px;
+}
+
+.view-page,
+.view-page.active {
+    position: static;
+    inset: auto;
+    overflow: visible;
+    min-height: auto;
+}
+
+.view-page:not(.active) {
+    display: none;
+}
+
+.workspace {
+    width: min(1480px, 100%);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    overflow: visible;
+}
+
+.canvas-section,
+.audit-section {
+    width: 100%;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgba(91, 92, 226, .13);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    background: rgba(255, 255, 255, .68);
+    scroll-margin-top: 132px;
+}
+
+.canvas-section {
+    height: min(720px, calc(100vh - 150px));
+    min-height: 560px;
+    border-right: 1px solid rgba(91, 92, 226, .13);
+}
+
+.audit-section {
+    min-height: 620px;
+}
+
+.audit-content {
+    overflow: visible;
+    padding: 22px;
+}
+
+.audit-content > * {
+    width: 100%;
+}
+
+.analytics-container {
+    width: min(1480px, 100%);
+    margin: 0 auto;
+    overflow: visible;
+    padding: 8px 0 40px;
+}
+
+.summary-card {
+    position: relative;
+}
+
+.summary-card::before,
+.canvas-section::before,
+.audit-section::before {
+    content: "";
+    display: block;
+    height: 3px;
+    background: linear-gradient(90deg, #2563eb, #7c3aed, #ec4899, #f59e0b);
+    background-size: 220% 100%;
+    animation: gradient-travel 7s linear infinite;
+}
+
+@keyframes gradient-travel {
+    to { background-position: 220% 0; }
+}
+
+@media (max-width: 900px) {
+    .sub-bar { position: relative; top: auto; }
+    .main-viewport { padding: 12px; }
+    .workspace { overflow: visible; gap: 16px; }
+    .canvas-section { height: 620px; min-height: 520px; }
+    .audit-section { min-height: 520px; }
+    .audit-content { padding: 14px; }
+}
