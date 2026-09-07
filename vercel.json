@@ -4,6 +4,7 @@
     { "source": "/api/:path*", "destination": "https://sih-pro-legal-metrology.onrender.com/api/:path*" },
     { "source": "/health", "destination": "https://sih-pro-legal-metrology.onrender.com/health" },
     { "source": "/static/style.css", "destination": "/static/immersive.css" },
+    { "source": "/static/script.js", "destination": "/static/bootstrap.js" },
     { "source": "/", "destination": "/static/index.html" }
   ]
 }
