@@ -41,13 +41,11 @@ async def immersive_frontend(request: Request, call_next):
             scripts.append('<script src="/static/immersive.js"></script>')
         if "/static/login3d.js" not in html:
             scripts.append('<script src="/static/login3d.js"></script>')
-        if "/static/runtime-hotfix.js" not in html:
-            scripts.append('<script src="/static/runtime-hotfix.js"></script>')
+        scripts.append('<script src="/static/runtime-hotfix.js?v=20260907-1326"></script>')
         if (STATIC_DIR / "offline.js").exists() and "/static/offline.js" not in html:
             scripts.append('<script src="/static/offline.js"></script>')
-        if scripts:
-            html = html.replace("</body>", "\n".join(scripts) + "\n</body>")
-        return HTMLResponse(html)
+        html = html.replace("</body>", "\n".join(scripts) + "\n</body>")
+        return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     return await call_next(request)
 
 
@@ -63,17 +61,13 @@ def _grade(score: float) -> str:
     return "D"
 
 
-def _resize_image(image: np.ndarray, max_edge: int = 1050) -> np.ndarray:
+def _resize_image(image: np.ndarray, max_edge: int = 800) -> np.ndarray:
     h, w = image.shape[:2]
     longest = max(h, w)
     if longest <= max_edge:
         return image
     scale = max_edge / float(longest)
-    return cv2.resize(
-        image,
-        (max(1, int(w * scale)), max(1, int(h * scale))),
-        interpolation=cv2.INTER_AREA,
-    )
+    return cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
 
 
 def _fast_ocr(image: np.ndarray) -> dict:
@@ -99,7 +93,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="At least one product image is required")
     if len(files) > 4:
-        raise HTTPException(status_code=400, detail="Upload up to 4 product panels for instant analysis")
+        raise HTTPException(status_code=400, detail="Upload up to 4 product panels")
 
     panels = []
     combined_tokens = []
@@ -115,8 +109,8 @@ async def fast_audit(files: List[UploadFile] = File(...)):
             raise HTTPException(status_code=400, detail=f"{upload.filename}: unsupported or corrupted image")
 
         result = _fast_ocr(image)
-        preview = _resize_image(result["image"], 760)
-        ok, encoded = cv2.imencode(".jpg", preview, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+        preview = _resize_image(result["image"], 640)
+        ok, encoded = cv2.imencode(".jpg", preview, [int(cv2.IMWRITE_JPEG_QUALITY), 68])
         image_b64 = ""
         if ok:
             image_b64 = "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
@@ -151,11 +145,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     verdict = rule_evaluator.evaluate(aggregated_ocr)
     inspection_id = f"LM-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
     primary_name = files[0].filename or "Product"
-    product_name = _extract_product_name(
-        aggregated_ocr["full_extracted_text"],
-        verdict.get("audit_report", {}),
-        primary_name,
-    )
+    product_name = _extract_product_name(aggregated_ocr["full_extracted_text"], verdict.get("audit_report", {}), primary_name)
 
     verdict["inspection_id"] = inspection_id
     verdict["product_name"] = product_name
@@ -169,7 +159,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     return verdict
 
 
-async def _optimize_uploads(files: List[UploadFile], max_edge: int = 1600) -> None:
+async def _optimize_uploads(files: List[UploadFile], max_edge: int = 1200) -> None:
     for upload in files:
         data = await upload.read()
         arr = np.frombuffer(data, np.uint8)
@@ -183,7 +173,7 @@ async def _optimize_uploads(files: List[UploadFile], max_edge: int = 1600) -> No
         if longest > max_edge:
             scale = max_edge / float(longest)
             image = cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
-            ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+            ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
             if ok:
                 data = encoded.tobytes()
         upload.file = BytesIO(data)
