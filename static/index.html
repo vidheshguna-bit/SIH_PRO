@@ -3,143 +3,304 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LM Audit · SIH26034</title>
+    <title>Legal Metrology Packaging Auditor | SIH26034</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <!-- Header -->
+    <!-- Main Navigation Header -->
     <header class="app-header">
         <div class="header-left">
             <div class="logo-mark">LM</div>
             <div>
-                <h1 class="app-title">Packaging Compliance Auditor</h1>
-                <span class="app-sub">Legal Metrology Rules, 2011 · SIH26034</span>
+                <h1 class="app-title">Legal Metrology Compliance Auditor</h1>
+                <span class="app-sub">Packaged Commodities Rules, 2011 · SIH26034</span>
             </div>
+            
+            <!-- Primary View Navigation Tabs -->
+            <nav class="view-nav-tabs">
+                <button class="nav-tab active" id="tab-btn-inspector" data-view="inspector">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    Label Inspector
+                </button>
+                <button class="nav-tab" id="tab-btn-analytics" data-view="analytics">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    Analytics & Insights
+                    <span id="nav-analytics-badge" class="nav-badge">12</span>
+                </button>
+            </nav>
         </div>
+
         <div class="header-right">
             <div class="engine-badge">
                 <span class="live-dot"></span>
-                RapidOCR · ONNX
+                RapidOCR · ONNX Engine
             </div>
-            <label for="image-upload" class="btn btn-upload">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                Upload Label
-            </label>
-            <input type="file" id="image-upload" accept="image/*" multiple hidden>
-            <button id="btn-export-pdf" class="btn btn-ghost" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <button id="btn-export-pdf" class="btn btn-ghost" disabled title="Download Legal Metrology Certificate">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 Export PDF
             </button>
-            <button id="btn-raw-json" class="btn btn-ghost" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <button id="btn-raw-json" class="btn btn-ghost" disabled title="View Structured Audit JSON">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                 JSON
             </button>
         </div>
     </header>
 
-    <!-- Quick Sample Bar -->
-    <div class="sample-bar">
-        <span class="sample-bar-label">Quick Tests</span>
-        <button class="chip chip-pass" data-sample="compliant">Compliant Label</button>
-        <button class="chip chip-fail" data-sample="illegal_units">Illegal Unit (gms)</button>
-        <button class="chip chip-fail" data-sample="mismatched_usp">USP Math Error</button>
-        <button class="chip chip-fail" data-sample="missing_grievance">Missing Grievance</button>
+    <!-- Sub-Bar / Audit Mode & Action Strip -->
+    <div class="sub-bar" id="sub-bar-inspector">
+        <div class="sub-bar-left">
+            <!-- Mode Switcher: Single Product vs Bulk Audit -->
+            <div class="audit-mode-selector">
+                <button class="mode-btn active" id="btn-mode-single" data-mode="single" title="Upload multiple panels (front, back, sides) of a single product">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                    Single Product (Multi-Panel)
+                </button>
+                <button class="mode-btn" id="btn-mode-bulk" data-mode="bulk" title="Upload multiple distinct products for batch evaluation">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                    Bulk Batch Scan
+                </button>
+            </div>
+
+            <!-- Upload button -->
+            <label for="image-upload" class="btn btn-upload" id="upload-label-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span id="upload-btn-text">Upload Product Panel(s)</span>
+            </label>
+            <input type="file" id="image-upload" accept="image/*" multiple hidden>
+
+            <!-- Sample Benchmark Chips -->
+            <div class="sample-chips-group">
+                <span class="sample-bar-label">Benchmarks:</span>
+                <button class="chip chip-pass" data-sample="compliant">🟢 100% Compliant</button>
+                <button class="chip chip-fail" data-sample="illegal_units">🔴 'gms' Unit & No Tax</button>
+                <button class="chip chip-fail" data-sample="mismatched_usp">🔴 USP Math Mismatch</button>
+                <button class="chip chip-fail" data-sample="missing_grievance">🔴 Missing Grievance</button>
+            </div>
+        </div>
+
+        <div class="sub-bar-right">
+            <span id="product-name-pill" class="product-name-pill hidden">Product: —</span>
+        </div>
     </div>
 
-    <!-- Workspace -->
-    <main class="workspace">
+    <!-- MAIN CONTENT VIEWPORT -->
+    <main class="main-viewport">
 
-        <!-- Left: Visual Canvas -->
-        <section class="canvas-section">
-            <div class="section-toolbar">
-                <div class="toolbar-left">
-                    <span id="panel-counter" class="count-tag">—</span>
-                </div>
-                <div class="toolbar-right">
-                    <button class="icon-btn" id="btn-zoom-in" title="Zoom In">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                    </button>
-                    <button class="icon-btn" id="btn-zoom-out" title="Zoom Out">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                    </button>
-                    <button class="icon-btn" id="btn-zoom-reset" title="Fit">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-                    </button>
-                    <label class="toggle-pill">
-                        <input type="checkbox" id="toggle-overlay" checked>
-                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                        <span class="toggle-label">Overlay</span>
-                    </label>
-                </div>
-            </div>
+        <!-- ================================================================= -->
+        <!-- VIEW 1: LABEL INSPECTOR (Split Screen Canvas + Cards)             -->
+        <!-- ================================================================= -->
+        <div class="view-page active" id="view-inspector">
+            <div class="workspace">
 
-            <!-- Panel tabs -->
-            <div id="panel-tabs-bar" class="panel-tabs-bar hidden"></div>
-
-            <!-- Canvas -->
-            <div class="canvas-viewport" id="canvas-container">
-                <div id="drop-placeholder" class="drop-zone">
-                    <div class="drop-zone-icon">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                <!-- Left Section: Visual Canvas & Panel Strip -->
+                <section class="canvas-section">
+                    <div class="section-toolbar">
+                        <div class="toolbar-left">
+                            <span id="panel-counter" class="count-tag">No Scan Active</span>
+                            <span id="active-panel-tag" class="panel-name-tag hidden">Panel 1 (Front)</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <button class="icon-btn" id="btn-zoom-in" title="Zoom In">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                            </button>
+                            <button class="icon-btn" id="btn-zoom-out" title="Zoom Out">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                            </button>
+                            <button class="icon-btn" id="btn-zoom-reset" title="Fit to View">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                            </button>
+                            <label class="toggle-pill" title="Toggle Bounding Boxes">
+                                <input type="checkbox" id="toggle-overlay" checked>
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                <span class="toggle-label">BBoxes</span>
+                            </label>
+                        </div>
                     </div>
-                    <p class="drop-title">Drop a product label here</p>
-                    <p class="drop-sub">or choose a Quick Test above</p>
-                    <div class="drop-caps">
-                        <span>CLAHE Enhancement</span>
-                        <span>Spatial OCR</span>
-                        <span>Rule Engine</span>
+
+                    <!-- Canvas Viewport -->
+                    <div class="canvas-viewport" id="canvas-container">
+                        <div id="drop-placeholder" class="drop-zone">
+                            <div class="drop-zone-icon">
+                                <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                            </div>
+                            <p class="drop-title" id="drop-zone-title">Drop Product Panel Photos Here</p>
+                            <p class="drop-sub" id="drop-zone-sub">Upload single or multi-panel packaging (Front, Back, Nutrition) or select a benchmark</p>
+                            <div class="drop-caps">
+                                <span>Multi-Panel Cross Validation</span>
+                                <span>Batch Processing</span>
+                                <span>Deterministic Rule Engine</span>
+                            </div>
+                        </div>
+
+                        <div id="canvas-wrapper" class="canvas-wrapper hidden">
+                            <canvas id="inspection-canvas"></canvas>
+                            <div id="canvas-tooltip" class="canvas-tooltip hidden"></div>
+                        </div>
+
+                        <div id="processing-loader" class="processing-loader hidden">
+                            <div class="spinner-ring"></div>
+                            <p id="loader-status-text">Analysing Packaging Declarations…</p>
+                        </div>
+                    </div>
+
+                    <!-- Multi-Panel Thumbnail Gallery Strip -->
+                    <div id="panel-thumbnails-strip" class="panel-thumbnails-strip hidden">
+                        <!-- Dynamic thumbnail preview cards for multi-panel product -->
+                    </div>
+
+                    <!-- Legend Bar -->
+                    <div class="legend-bar">
+                        <div class="legend-item"><span class="ldot l-pass"></span>Compliant Clause</div>
+                        <div class="legend-item"><span class="ldot l-warn"></span>Illegal Unit / Warning ('gms')</div>
+                        <div class="legend-item"><span class="ldot l-fail"></span>Statutory Violation / Math Error</div>
+                        <div class="legend-item"><span class="ldot l-info"></span>Extracted Token</div>
+                    </div>
+                </section>
+
+                <!-- Right Section: Audit Report Cards OR Bulk Results List -->
+                <section class="audit-section">
+                    <div class="section-toolbar">
+                        <span class="toolbar-title" id="audit-panel-title">Statutory Audit Report</span>
+                        <span id="inspection-meta-tag" class="mono-tag">Ref: Pending</span>
+                    </div>
+
+                    <div id="audit-content" class="audit-content">
+                        <!-- Initial Empty State -->
+                        <div class="empty-state">
+                            <div class="empty-icon">
+                                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            </div>
+                            <p class="empty-title">Ready for Statutory Inspection</p>
+                            <p class="empty-sub">Upload single/multi-panel package images or run a bulk audit to inspect statutory clauses</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- VIEW 2: ANALYTICS & INSIGHTS DASHBOARD                            -->
+        <!-- ================================================================= -->
+        <div class="view-page" id="view-analytics">
+            <div class="analytics-container">
+                
+                <!-- Analytics Header Bar -->
+                <div class="analytics-header-row">
+                    <div>
+                        <h2 class="analytics-main-title">Packaging Compliance Analytics</h2>
+                        <p class="analytics-sub-title">Cross-product statutory compliance metrics, defect trends & audit logs under Legal Metrology Rules, 2011</p>
+                    </div>
+                    <div class="analytics-actions">
+                        <button id="btn-load-demo-batch" class="btn btn-primary">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            Load Demo Batch (12 Products)
+                        </button>
+                        <button id="btn-export-csv" class="btn btn-ghost">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Export Batch CSV
+                        </button>
                     </div>
                 </div>
 
-                <div id="canvas-wrapper" class="canvas-wrapper hidden">
-                    <canvas id="inspection-canvas"></canvas>
-                    <div id="canvas-tooltip" class="canvas-tooltip hidden"></div>
-                </div>
-
-                <div id="processing-loader" class="processing-loader hidden">
-                    <div class="spinner-ring"></div>
-                    <p>Analysing…</p>
-                </div>
-            </div>
-
-            <!-- Legend -->
-            <div class="legend-bar">
-                <div class="legend-item"><span class="ldot l-pass"></span>Compliant</div>
-                <div class="legend-item"><span class="ldot l-warn"></span>Warning</div>
-                <div class="legend-item"><span class="ldot l-fail"></span>Violation</div>
-                <div class="legend-item"><span class="ldot l-info"></span>Token</div>
-            </div>
-        </section>
-
-        <!-- Right: Audit Results -->
-        <section class="audit-section">
-            <div class="section-toolbar">
-                <span class="toolbar-title">Audit Report</span>
-                <span id="inspection-meta-tag" class="mono-tag">Ref: —</span>
-            </div>
-
-            <div id="audit-content" class="audit-content">
-                <div class="empty-state">
-                    <div class="empty-icon">
-                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <!-- KPI Metric Cards Grid -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-label">TOTAL PRODUCTS AUDITED</div>
+                        <div class="kpi-value" id="kpi-total-audited">—</div>
+                        <div class="kpi-meta">Across all scanned batches</div>
                     </div>
-                    <p class="empty-title">Ready to inspect</p>
-                    <p class="empty-sub">Upload a label or pick a quick test</p>
+                    <div class="kpi-card kpi-pass-card">
+                        <div class="kpi-label">COMPLIANT (PASS RATE)</div>
+                        <div class="kpi-value text-pass" id="kpi-pass-rate">—%</div>
+                        <div class="kpi-meta" id="kpi-pass-count">— items passed</div>
+                    </div>
+                    <div class="kpi-card kpi-warn-card">
+                        <div class="kpi-label">WARNINGS / NON-SI UNITS</div>
+                        <div class="kpi-value text-warn" id="kpi-warn-rate">—%</div>
+                        <div class="kpi-meta" id="kpi-warn-count">— items with warnings</div>
+                    </div>
+                    <div class="kpi-card kpi-fail-card">
+                        <div class="kpi-label">STATUTORY DEFECT RATE</div>
+                        <div class="kpi-value text-fail" id="kpi-fail-rate">—%</div>
+                        <div class="kpi-meta" id="kpi-fail-count">— items non-compliant</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">AVG COMPLIANCE SCORE</div>
+                        <div class="kpi-value text-indigo" id="kpi-avg-score">—%</div>
+                        <div class="kpi-meta">Statutory weighted score</div>
+                    </div>
                 </div>
+
+                <!-- Defect Breakdown & Charts Section -->
+                <div class="analytics-breakdown-section">
+                    <div class="breakdown-card">
+                        <div class="breakdown-card-header">
+                            <h3>Statutory Clause Violation Frequency</h3>
+                            <span class="breakdown-sub">Distribution of defects across Legal Metrology Clauses</span>
+                        </div>
+                        
+                        <div class="defect-bars-container" id="defect-bars-container">
+                            <!-- Dynamically generated defect frequency bars -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Product Audit Ledger Table -->
+                <div class="ledger-card">
+                    <div class="ledger-header">
+                        <div class="ledger-title-group">
+                            <h3>Audited Products Ledger</h3>
+                            <span class="count-tag" id="ledger-product-count">0 items</span>
+                        </div>
+                        <div class="ledger-filters">
+                            <input type="text" id="ledger-search-input" class="search-input" placeholder="Search by commodity, brand or ID...">
+                            <div class="filter-pill-group">
+                                <button class="filter-pill active" data-filter="ALL">All</button>
+                                <button class="filter-pill" data-filter="PASS">Pass</button>
+                                <button class="filter-pill" data-filter="WARNING">Warning</button>
+                                <button class="filter-pill" data-filter="FAIL">Fail</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="ledger-table" id="ledger-table">
+                            <thead>
+                                <tr>
+                                    <th>Ref ID</th>
+                                    <th>Product / Commodity</th>
+                                    <th>Panels</th>
+                                    <th>Status</th>
+                                    <th>Score</th>
+                                    <th>Detected Defects / Violations</th>
+                                    <th>Timestamp</th>
+                                    <th style="text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ledger-table-body">
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">No audit records found. Load demo batch or scan products.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
             </div>
-        </section>
+        </div>
 
     </main>
 
-    <!-- JSON Modal -->
+    <!-- Raw JSON Modal -->
     <div id="json-modal" class="modal-backdrop hidden">
         <div class="modal-card">
             <div class="modal-header">
-                <span>Audit JSON</span>
+                <span>Structured Audit JSON (Explainable Output)</span>
                 <button id="btn-close-modal" class="icon-btn">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
@@ -148,7 +309,7 @@
                 <pre id="json-display"><code></code></pre>
             </div>
             <div class="modal-footer">
-                <button id="btn-copy-json" class="btn btn-ghost">Copy</button>
+                <button id="btn-copy-json" class="btn btn-ghost">Copy JSON</button>
             </div>
         </div>
     </div>
