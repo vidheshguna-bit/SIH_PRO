@@ -1,0 +1,9 @@
+{
+  "name":"SmartMetrology AI Inspector",
+  "short_name":"SmartMetrology",
+  "start_url":"/",
+  "display":"standalone",
+  "background_color":"#071a31",
+  "theme_color":"#0b2447",
+  "description":"Offline-ready Legal Metrology inspection workspace for SIH26034"
+}
