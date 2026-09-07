@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import re
 import uuid
@@ -11,7 +12,9 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,6 +36,9 @@ class PdfPayload(BaseModel):
     compliance_score: float = 0
     grade: str = "—"
     report: dict = {}
+    images: List[str] = []
+    image_labels: List[str] = []
+    analysis_mode: str = "AI-assisted screening"
 
 
 def item(title, rule, status, value, details):
@@ -50,8 +56,6 @@ def extract(text, pattern, default="Not detected"):
 
 def analyse_text(text: str):
     compact = re.sub(r"\s+", " ", text).strip()
-    upper = compact.upper()
-
     qty_ok = present(compact, [r"\bnet\s*(?:wt|weight|qty|quantity)?\s*[:.-]?\s*\d+(?:\.\d+)?\s*(?:kg|g|gm|ml|l|litre|liter)\b", r"\b\d+(?:\.\d+)?\s*(?:kg|g|gm|ml|l)\b"])
     mrp_ok = present(compact, [r"\bmrp\b", r"maximum retail price", r"retail sale price"])
     tax_ok = present(compact, [r"incl(?:usive)?\.?\s*(?:of)?\s*all\s*tax", r"inclusive of taxes", r"incl\.?\s*tax"])
@@ -87,7 +91,6 @@ def analyse_text(text: str):
     blacklist = {"net","weight","quantity","mrp","maximum","retail","price","manufactured","packed","consumer","care"}
     name_words = [w for w in words if w.lower() not in blacklist][:5]
     product_name = " ".join(name_words[:3]) or "Packaged Commodity"
-
     return report, overall, score, fails, warns, product_name
 
 
@@ -96,7 +99,7 @@ async def no_cache_root(request: Request, call_next):
     if request.url.path == "/":
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         html = html.replace("</head>", '<link rel="stylesheet" href="/static/immersive.css"><link rel="stylesheet" href="/static/login3d.css"><link rel="stylesheet" href="/static/unified-theme.css"></head>')
-        scripts = '<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="/static/immersive.js"></script><script src="/static/login3d.js"></script><script src="/static/direct-audit.js?v=20260907-browserocr1"></script>'
+        scripts = '<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="/static/immersive.js"></script><script src="/static/login3d.js"></script><script src="/static/direct-audit.js?v=20260907-pdfphotos2"></script>'
         html = html.replace("</body>", scripts + "</body>")
         return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     return await call_next(request)
@@ -135,36 +138,195 @@ def text_audit(payload: TextAuditPayload):
     }
 
 
+def decode_data_url(value: str):
+    try:
+        encoded = value.split(",", 1)[1] if "," in value else value
+        return io.BytesIO(base64.b64decode(encoded))
+    except Exception:
+        return None
+
+
+def wrap_text(c, text, x, y, max_chars=74, leading=12, font="Helvetica", size=8.5):
+    c.setFont(font, size)
+    words = str(text or "").split()
+    lines, current = [], ""
+    for word in words:
+        candidate = (current + " " + word).strip()
+        if len(candidate) > max_chars and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    for line in lines:
+        c.drawString(x, y, line)
+        y -= leading
+    return y
+
+
 @app.post("/api/export-pdf")
 def export_pdf(payload: PdfPayload):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-    y = height - 50
-    c.setFont("Helvetica-Bold", 15)
-    c.drawString(45, y, "SmartMetrology AI - Inspection Report")
-    y -= 28
-    c.setFont("Helvetica", 10)
-    lines = [
-        f"Inspection ID: {payload.inspection_id}",
-        f"Product: {payload.commodity_name}",
-        f"Status: {payload.overall_status}",
-        f"Compliance score: {payload.compliance_score}%",
-        f"Grade: {payload.grade}",
-        "",
-        "Compliance findings:",
-    ]
+    graphite = HexColor("#2F2418")
+    gold = HexColor("#C98216")
+    emerald = HexColor("#0F7A5A")
+    amber = HexColor("#B86A00")
+    red = HexColor("#B54233")
+    cream = HexColor("#FFFAF0")
+    beige = HexColor("#F3ECDF")
+    line = HexColor("#DDCDB3")
+    muted = HexColor("#786C5C")
+
+    def header(page_no):
+        c.setFillColor(graphite)
+        c.rect(0, height - 72, width, 72, fill=1, stroke=0)
+        c.setFillColor(gold)
+        c.roundRect(38, height - 54, 28, 28, 6, fill=1, stroke=0)
+        c.setFillColor(graphite)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(52, height - 44, "SM")
+        c.setFillColor(cream)
+        c.setFont("Helvetica-Bold", 17)
+        c.drawString(78, height - 38, "SmartMetrology AI")
+        c.setFont("Helvetica", 8)
+        c.setFillColor(HexColor("#E8D9C5"))
+        c.drawString(78, height - 52, "AI-assisted Legal Metrology packaged commodity inspection")
+        c.setFillColor(muted)
+        c.setFont("Helvetica", 7.5)
+        c.drawRightString(width - 38, 22, f"Inspection {payload.inspection_id}  •  Page {page_no}")
+        c.setStrokeColor(line)
+        c.line(38, 30, width - 38, 30)
+
+    def new_page(page_no):
+        c.showPage()
+        header(page_no)
+        return height - 96
+
+    header(1)
+    y = height - 102
+
+    status_raw = str(payload.overall_status or "REVIEW").upper()
+    if status_raw in {"PASS", "COMPLIANT"}:
+        status_label, status_color = "COMPLIANT", emerald
+    elif status_raw in {"FAIL", "NON_COMPLIANT", "NON-COMPLIANT"}:
+        status_label, status_color = "NON-COMPLIANT", red
+    else:
+        status_label, status_color = "REVIEW REQUIRED", amber
+
+    c.setFillColor(beige)
+    c.roundRect(38, y - 100, width - 76, 92, 12, fill=1, stroke=0)
+    c.setFillColor(graphite)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(54, y - 31, payload.commodity_name[:54])
+    c.setFillColor(muted)
+    c.setFont("Helvetica", 8.5)
+    c.drawString(54, y - 48, f"Inspection ID  {payload.inspection_id}")
+    c.drawString(54, y - 63, f"Analysis mode  {payload.analysis_mode[:65]}")
+    c.setFillColor(status_color)
+    c.roundRect(width - 190, y - 78, 136, 47, 10, fill=1, stroke=0)
+    c.setFillColor(cream)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(width - 122, y - 50, status_label)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(width - 122, y - 66, f"{round(payload.compliance_score)}%  •  Grade {payload.grade}")
+    y -= 118
+
+    if payload.images:
+        c.setFillColor(graphite)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(38, y, "Submitted Product Evidence")
+        y -= 16
+        gap = 12
+        card_w = (width - 76 - gap) / 2
+        card_h = 186
+        for i, raw in enumerate(payload.images[:4]):
+            if i and i % 2 == 0:
+                y -= card_h + 16
+            x = 38 + (i % 2) * (card_w + gap)
+            card_y = y - card_h
+            c.setFillColor(HexColor("#FFF7E8"))
+            c.setStrokeColor(line)
+            c.roundRect(x, card_y, card_w, card_h, 10, fill=1, stroke=1)
+            label = payload.image_labels[i] if i < len(payload.image_labels) else f"Product Panel {i+1}"
+            img_buf = decode_data_url(raw)
+            if img_buf:
+                try:
+                    img = ImageReader(img_buf)
+                    iw, ih = img.getSize()
+                    max_w, max_h = card_w - 18, card_h - 38
+                    scale = min(max_w / iw, max_h / ih)
+                    dw, dh = iw * scale, ih * scale
+                    ix = x + (card_w - dw) / 2
+                    iy = card_y + 26 + (max_h - dh) / 2
+                    c.drawImage(img, ix, iy, dw, dh, preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    c.setFillColor(muted)
+                    c.setFont("Helvetica", 8)
+                    c.drawCentredString(x + card_w / 2, card_y + 88, "Image preview unavailable")
+            c.setFillColor(graphite)
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawCentredString(x + card_w / 2, card_y + 10, label[:38])
+        rows = (min(len(payload.images), 4) + 1) // 2
+        y -= rows * (card_h + 16) + 4
+
+    if y < 250:
+        y = new_page(2)
+        page_no = 2
+    else:
+        page_no = 1
+
+    c.setFillColor(graphite)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(38, y, "Compliance Findings")
+    y -= 17
+
     for value in payload.report.values():
-        if isinstance(value, dict):
-            lines.append(f"- {value.get('title','Requirement')}: {value.get('status','')} | {value.get('detected_value','')}")
-            lines.append(f"  {value.get('details','')}")
-    lines += ["", "Prototype screening report for SIH 2026 evaluation.", "This is not a digitally signed statutory order."]
-    for line in lines:
-        if y < 55:
-            c.showPage(); y = height - 50; c.setFont("Helvetica", 10)
-        for part in [line[i:i+95] for i in range(0, max(1, len(line)), 95)] or [""]:
-            c.drawString(45, y, part)
-            y -= 14
+        if not isinstance(value, dict):
+            continue
+        if y < 125:
+            page_no += 1
+            y = new_page(page_no)
+        state = str(value.get("status", "REVIEW")).upper()
+        state_color = emerald if state == "COMPLIANT" else red if state == "NON_COMPLIANT" else amber
+        c.setFillColor(HexColor("#FFFDF8"))
+        c.setStrokeColor(line)
+        c.roundRect(38, y - 75, width - 76, 68, 8, fill=1, stroke=1)
+        c.setFillColor(state_color)
+        c.roundRect(49, y - 32, 92, 19, 6, fill=1, stroke=0)
+        c.setFillColor(cream)
+        c.setFont("Helvetica-Bold", 7.5)
+        c.drawCentredString(95, y - 25, state.replace("_", "-"))
+        c.setFillColor(graphite)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(151, y - 24, str(value.get("title", "Requirement"))[:58])
+        c.setFillColor(gold)
+        c.setFont("Helvetica-Bold", 7.5)
+        c.drawRightString(width - 49, y - 24, str(value.get("rule", ""))[:30])
+        c.setFillColor(graphite)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(49, y - 45, "Observed:")
+        c.setFont("Helvetica", 8)
+        c.drawString(92, y - 45, str(value.get("detected_value", "Not established"))[:76])
+        c.setFillColor(muted)
+        wrap_text(c, value.get("details", "Inspector verification required."), 49, y - 59, 88, 10, "Helvetica", 7.5)
+        y -= 82
+
+    if y < 150:
+        page_no += 1
+        y = new_page(page_no)
+
+    c.setFillColor(HexColor("#E6F5EE"))
+    c.setStrokeColor(HexColor("#BFDCCF"))
+    c.roundRect(38, y - 78, width - 76, 70, 10, fill=1, stroke=1)
+    c.setFillColor(emerald)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(50, y - 27, "Human Review & Legal Use")
+    c.setFillColor(graphite)
+    wrap_text(c, "This is an AI-assisted SIH 2026 prototype screening report. Findings are evidence for inspector review and are not a digitally signed statutory order or final enforcement determination.", 50, y - 44, 91, 10, "Helvetica", 7.8)
+
     c.save()
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="SmartMetrology_{payload.inspection_id}.pdf"'})
