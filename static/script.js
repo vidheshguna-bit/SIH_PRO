@@ -4,6 +4,7 @@
  */
 
 document.addEventListener("DOMContentLoaded", () => {
+    document.body.classList.add("inspector-active");
     // ── Application State ──────────────────────
     let activeView          = "inspector"; // "inspector" | "analytics"
     let auditMode           = "single";    // "single" | "bulk"
@@ -83,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function switchView(viewName) {
         activeView = viewName;
+        document.body.classList.toggle("inspector-active", viewName === "inspector");
         tabInspector.classList.toggle("active", viewName === "inspector");
         tabAnalytics.classList.toggle("active", viewName === "analytics");
         viewInspector.classList.toggle("active", viewName === "inspector");
