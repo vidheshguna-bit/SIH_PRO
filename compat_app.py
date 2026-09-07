@@ -19,13 +19,25 @@ async def immersive_frontend(request: Request, call_next):
         if "/static/immersive.css" not in html:
             html = html.replace(
                 "</head>",
-                '<link rel="stylesheet" href="/static/immersive.css">\n</head>',
+                '<link rel="stylesheet" href="/static/immersive.css">\n'
+                '<link rel="stylesheet" href="/static/login3d.css">\n</head>',
+            )
+        elif "/static/login3d.css" not in html:
+            html = html.replace(
+                "</head>",
+                '<link rel="stylesheet" href="/static/login3d.css">\n</head>',
             )
         if "/static/immersive.js" not in html:
             html = html.replace(
                 "</body>",
                 '<script src="/static/immersive.js"></script>\n'
+                '<script src="/static/login3d.js"></script>\n'
                 '<script src="/static/offline.js"></script>\n</body>',
+            )
+        elif "/static/login3d.js" not in html:
+            html = html.replace(
+                "</body>",
+                '<script src="/static/login3d.js"></script>\n</body>',
             )
         return HTMLResponse(html)
     return await call_next(request)
