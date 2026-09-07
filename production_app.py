@@ -10,10 +10,20 @@ import cv2
 import numpy as np
 from fastapi import File, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from app import app, AUDIT_STORE, _extract_product_name, ocr_pipeline, rule_evaluator
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+class JsonImage(BaseModel):
+    name: str
+    data: str
+
+
+class JsonAuditPayload(BaseModel):
+    images: List[JsonImage]
 
 
 @app.middleware("http")
@@ -30,6 +40,7 @@ async def production_frontend(request: Request, call_next):
             '<script src="/static/immersive.js"></script>\n'
             '<script src="/static/login3d.js"></script>\n'
             '<script src="/static/runtime-hotfix.js?v=20260907-stable1"></script>\n'
+            '<script src="/static/reliable-audit.js?v=20260907-json1"></script>\n'
         )
         html = html.replace("</body>", scripts + "</body>")
         return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
@@ -53,11 +64,10 @@ def _grade(score: float) -> str:
     return "D"
 
 
-@app.post("/api/fast-audit")
-async def fast_audit(files: List[UploadFile] = File(...)):
-    if not files:
+def _analyse_images(decoded_images):
+    if not decoded_images:
         raise HTTPException(status_code=400, detail="At least one product image is required")
-    if len(files) > 4:
+    if len(decoded_images) > 4:
         raise HTTPException(status_code=400, detail="Upload up to 4 product panels")
 
     panels = []
@@ -65,14 +75,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     all_lines = []
     texts = []
 
-    for index, upload in enumerate(files):
-        data = await upload.read()
-        if len(data) > 12 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail=f"{upload.filename}: image exceeds 12 MB")
-        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if image is None:
-            raise HTTPException(status_code=400, detail=f"{upload.filename}: unsupported image")
-
+    for index, (filename, image) in enumerate(decoded_images):
         image = _resize(image, 512)
         tokens = ocr_pipeline.extract_tokens(image)
         lines = ocr_pipeline.assemble_lines(tokens)
@@ -85,7 +88,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
 
         panels.append({
             "panel_index": index,
-            "filename": upload.filename,
+            "filename": filename,
             "image_b64": image_b64,
             "dimensions": {"width": w, "height": h},
             "token_count": len(tokens),
@@ -106,7 +109,7 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     }
     verdict = rule_evaluator.evaluate(aggregated)
     inspection_id = f"LM-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-    product_name = _extract_product_name(aggregated["full_extracted_text"], verdict.get("audit_report", {}), files[0].filename or "Product")
+    product_name = _extract_product_name(aggregated["full_extracted_text"], verdict.get("audit_report", {}), decoded_images[0][0] or "Product")
     score = float(verdict.get("compliance_score", 0) or 0)
 
     verdict.update({
@@ -122,3 +125,35 @@ async def fast_audit(files: List[UploadFile] = File(...)):
     })
     AUDIT_STORE[inspection_id] = verdict
     return verdict
+
+
+@app.post("/api/fast-audit")
+async def fast_audit(files: List[UploadFile] = File(...)):
+    decoded = []
+    for upload in files:
+        data = await upload.read()
+        if len(data) > 12 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{upload.filename}: image exceeds 12 MB")
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise HTTPException(status_code=400, detail=f"{upload.filename}: unsupported image")
+        decoded.append((upload.filename or "Product", image))
+    return _analyse_images(decoded)
+
+
+@app.post("/api/fast-audit-json")
+async def fast_audit_json(payload: JsonAuditPayload):
+    decoded = []
+    for item in payload.images[:4]:
+        raw = item.data.split(",", 1)[-1]
+        try:
+            data = base64.b64decode(raw, validate=False)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"{item.name}: invalid image data")
+        if len(data) > 4 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{item.name}: optimized image too large")
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise HTTPException(status_code=400, detail=f"{item.name}: unsupported image")
+        decoded.append((item.name or "Product", image))
+    return _analyse_images(decoded)
