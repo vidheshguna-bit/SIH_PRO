@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    { "source": "/api/audit", "destination": "https://sih-pro-legal-metrology.onrender.com/api/v4/audit-compatible" },
     { "source": "/api/:path*", "destination": "https://sih-pro-legal-metrology.onrender.com/api/:path*" },
     { "source": "/health", "destination": "https://sih-pro-legal-metrology.onrender.com/health" },
     { "source": "/static/style.css", "destination": "/static/immersive.css" },
