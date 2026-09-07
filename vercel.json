@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://sih-pro-legal-metrology.onrender.com/api/:path*" },
+    { "source": "/health", "destination": "https://sih-pro-legal-metrology.onrender.com/health" },
+    { "source": "/", "destination": "/static/index.html" }
+  ]
+}
