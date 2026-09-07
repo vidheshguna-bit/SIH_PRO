@@ -39,8 +39,7 @@ async def production_frontend(request: Request, call_next):
         scripts = (
             '<script src="/static/immersive.js"></script>\n'
             '<script src="/static/login3d.js"></script>\n'
-            '<script src="/static/runtime-hotfix.js?v=20260907-stable1"></script>\n'
-            '<script src="/static/reliable-audit.js?v=20260907-json1"></script>\n'
+            '<script src="/static/direct-audit.js?v=20260907-direct1"></script>\n'
         )
         html = html.replace("</body>", scripts + "</body>")
         return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
