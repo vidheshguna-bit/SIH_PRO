@@ -939,6 +939,50 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    const revealObserver = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add("is-visible");
+                revealObserver.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.12 });
+
+    function registerDynamicElements(root = document) {
+        root.querySelectorAll(".kpi-card, .breakdown-card, .ledger-card, .summary-card, .rule-card, .batch-item-card").forEach((element, index) => {
+            if (element.dataset.motionReady) return;
+            element.dataset.motionReady = "true";
+            element.classList.add("scroll-reveal");
+            element.style.setProperty("--reveal-delay", `${Math.min(index * 45, 260)}ms`);
+            revealObserver.observe(element);
+        });
+    }
+
+    const dynamicContentObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => mutation.addedNodes.forEach(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) registerDynamicElements(node.parentElement || document);
+        }));
+    });
+    dynamicContentObserver.observe(document.body, { childList: true, subtree: true });
+    registerDynamicElements();
+
+    if (window.matchMedia("(pointer: fine)").matches) {
+        document.addEventListener("pointermove", event => {
+            const card = event.target.closest(".kpi-card, .rule-card, .breakdown-card, .summary-card");
+            if (!card) return;
+            const rect = card.getBoundingClientRect();
+            const rx = ((event.clientY - rect.top) / rect.height - 0.5) * -4;
+            const ry = ((event.clientX - rect.left) / rect.width - 0.5) * 4;
+            card.style.setProperty("--tilt-x", `${rx.toFixed(2)}deg`);
+            card.style.setProperty("--tilt-y", `${ry.toFixed(2)}deg`);
+            card.classList.add("is-tilting");
+        });
+        document.addEventListener("pointerout", event => {
+            const card = event.target.closest(".kpi-card, .rule-card, .breakdown-card, .summary-card");
+            if (card && !card.contains(event.relatedTarget)) card.classList.remove("is-tilting");
+        });
+    }
+
     // Initialize badge on startup
     refreshAnalyticsBadge();
 });
