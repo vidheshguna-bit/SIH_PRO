@@ -1,9 +1,34 @@
 from __future__ import annotations
 
-from fastapi import File, UploadFile
+from pathlib import Path
 from typing import List
 
+from fastapi import File, Request, UploadFile
+from fastapi.responses import HTMLResponse
+
 from smart_app import app, hybrid_audit
+
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.middleware("http")
+async def immersive_frontend(request: Request, call_next):
+    if request.url.path == "/":
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        if "/static/immersive.css" not in html:
+            html = html.replace(
+                "</head>",
+                '<link rel="stylesheet" href="/static/immersive.css">\n</head>',
+            )
+        if "/static/immersive.js" not in html:
+            html = html.replace(
+                "</body>",
+                '<script src="/static/immersive.js"></script>\n'
+                '<script src="/static/offline.js"></script>\n</body>',
+            )
+        return HTMLResponse(html)
+    return await call_next(request)
 
 
 def _grade(score: float) -> str:
