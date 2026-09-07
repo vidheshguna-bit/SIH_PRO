@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import List
 
+import cv2
+import numpy as np
 from fastapi import File, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
@@ -27,18 +30,17 @@ async def immersive_frontend(request: Request, call_next):
                 "</head>",
                 '<link rel="stylesheet" href="/static/login3d.css">\n</head>',
             )
+        scripts = []
         if "/static/immersive.js" not in html:
-            html = html.replace(
-                "</body>",
-                '<script src="/static/immersive.js"></script>\n'
-                '<script src="/static/login3d.js"></script>\n'
-                '<script src="/static/offline.js"></script>\n</body>',
-            )
-        elif "/static/login3d.js" not in html:
-            html = html.replace(
-                "</body>",
-                '<script src="/static/login3d.js"></script>\n</body>',
-            )
+            scripts.append('<script src="/static/immersive.js"></script>')
+        if "/static/login3d.js" not in html:
+            scripts.append('<script src="/static/login3d.js"></script>')
+        if "/static/runtime-hotfix.js" not in html:
+            scripts.append('<script src="/static/runtime-hotfix.js"></script>')
+        if "/static/offline.js" not in html:
+            scripts.append('<script src="/static/offline.js"></script>')
+        if scripts:
+            html = html.replace("</body>", "\n".join(scripts) + "\n</body>")
         return HTMLResponse(html)
     return await call_next(request)
 
@@ -55,8 +57,30 @@ def _grade(score: float) -> str:
     return "D"
 
 
+async def _optimize_uploads(files: List[UploadFile], max_edge: int = 1600) -> None:
+    for upload in files:
+        data = await upload.read()
+        arr = np.frombuffer(data, np.uint8)
+        image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if image is None:
+            upload.file = BytesIO(data)
+            upload.size = len(data)
+            continue
+        h, w = image.shape[:2]
+        longest = max(h, w)
+        if longest > max_edge:
+            scale = max_edge / float(longest)
+            image = cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+            ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+            if ok:
+                data = encoded.tobytes()
+        upload.file = BytesIO(data)
+        upload.size = len(data)
+
+
 @app.post("/api/v4/audit-compatible")
 async def audit_compatible(files: List[UploadFile] = File(...)):
+    await _optimize_uploads(files)
     result = await hybrid_audit(files)
     checks = result.get("compliance_summary", {}).get("checks", [])
     audit_report = {}
