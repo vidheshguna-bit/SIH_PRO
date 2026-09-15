@@ -42,3 +42,26 @@ def test_frontend_contains_no_product_specific_report_values():
     assert "Bingo" not in source
     assert "ITC Limited" not in source
     assert "bingoDemoAudit" not in source
+
+
+def test_too_yumm_uploaded_panels_get_complete_pass_profile():
+    ocr_text = """
+    Marketed by Guiltfree Industries Limited, Duncan House 1st Floor,
+    31 Netaji Subhas Road, Kolkata 700001 India.
+    Net Weight 46 g. Date of Manufacture 27/06/2026.
+    Batch No N526178. Use By Date 23/11/2026.
+    MRP Rs 20.00 inclusive of all taxes (USP Rs 0.43/g).
+    Call us at 18004205525 or feedback@tooyumm.com.
+    """
+    report, overall, score, fails, warns, product = analyse_text(ocr_text)
+
+    assert overall == "PASS"
+    assert score == 100
+    assert fails == 0
+    assert warns == 0
+    assert product == "Too Yumm! Chips - Spanish Tomato"
+    assert all(section["status"] == "COMPLIANT" for section in report.values())
+    assert report["quantity"]["detected_value"] == "Net Weight 46 g"
+    assert report["date"]["detected_value"] == "27/06/2026"
+    assert report["batch"]["detected_value"] == "N526178"
+    assert report["use_by"]["detected_value"] == "23/11/2026"
