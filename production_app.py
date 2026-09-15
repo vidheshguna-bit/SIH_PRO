@@ -54,29 +54,87 @@ def extract(text, pattern, default="Not detected"):
     return m.group(0).strip() if m else default
 
 
+def extract_group(text, pattern, default="Not detected", group=1):
+    m = re.search(pattern, text, re.I)
+    return re.sub(r"\s+", " ", m.group(group)).strip(" .,:;-") if m else default
+
+
+def extract_product_name(text: str) -> str:
+    candidate = re.split(
+        r"\b(?:net\s*(?:wt|weight|qty|quantity)|m\.?r\.?p\.?|maximum retail price|"
+        r"manufactured\s+by|packed\s+by|marketed\s+by|imported\s+by|consumer\s+care|"
+        r"customer\s+care|unit\s+sale\s+price)\b",
+        text,
+        maxsplit=1,
+        flags=re.I,
+    )[0]
+    candidate = re.sub(r"\s+", " ", candidate).strip(" .,:;-|")
+    if 2 <= len(re.findall(r"[A-Za-z]{2,}", candidate)) <= 12 and len(candidate) <= 100:
+        return candidate
+    words = re.findall(r"[A-Za-z][A-Za-z0-9&'\-]{2,}", text[:180])
+    blacklist = {"net", "weight", "quantity", "mrp", "maximum", "retail", "price", "manufactured", "packed", "consumer", "care"}
+    return " ".join(w for w in words if w.lower() not in blacklist)[:60].strip() or "Packaged Commodity"
+
+
 def analyse_text(text: str):
     compact = re.sub(r"\s+", " ", text).strip()
-    qty_ok = present(compact, [r"\bnet\s*(?:wt|weight|qty|quantity)?\s*[:.-]?\s*\d+(?:\.\d+)?\s*(?:kg|g|gm|ml|l|litre|liter)\b", r"\b\d+(?:\.\d+)?\s*(?:kg|g|gm|ml|l)\b"])
+    qty_match = re.search(r"\b(?:net\s*(?:wt|weight|qty|quantity)?\s*[:.-]?\s*)?(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|grm|grms|ml|mls|l|ltr|ltrs|litre|litres|liter|liters)\b", compact, re.I)
+    qty_unit = qty_match.group(2).lower() if qty_match else ""
+    illegal_units = {"gm", "gms", "grm", "grms", "mls", "ltr", "ltrs", "litre", "litres", "liter", "liters"}
+    qty_ok = bool(qty_match) and qty_unit not in illegal_units
     mrp_ok = present(compact, [r"\bmrp\b", r"maximum retail price", r"retail sale price"])
     tax_ok = present(compact, [r"incl(?:usive)?\.?\s*(?:of)?\s*all\s*tax", r"inclusive of taxes", r"incl\.?\s*tax"])
-    date_ok = present(compact, [r"\b(?:mfd|mfg|manufactur(?:ed|ing)|packed|pkd)\b.{0,30}\b(?:20\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*20\d{2}\b"])
+    month = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    date_value = rf"(?:(?:\d{{1,2}}[\s/.-]+)?{month}[\s,/-]+(?:20)?\d{{2}}|\d{{1,2}}[/-](?:20)?\d{{2}})"
+    date_pattern = rf"\b(?:mfd|mfg(?:\s+date)?|manufactur(?:ed|ing)(?:\s+(?:on|date))?|packed(?:\s+on)?|pkd)\b\s*[:.-]?\s*({date_value})"
+    date = extract_group(compact, date_pattern)
+    date_ok = date != "Not detected"
     care_ok = present(compact, [r"consumer\s*(?:care|complaint|grievance)", r"customer\s*care", r"helpline", r"care@", r"support@"])
-    maker_ok = present(compact, [r"manufactur(?:ed|er)", r"packed by", r"marketed by", r"imported by"])
-    product_ok = len([w for w in re.findall(r"[A-Za-z]{3,}", compact[:250])]) >= 2
-    usp_ok = present(compact, [r"unit\s*(?:sale\s*)?price", r"₹\s*\d+(?:\.\d+)?\s*/\s*(?:g|kg|ml|l)"])
+    maker_pattern = r"\b(?:manufactured|packed|marketed|imported)\s+by\s*[:.-]?\s*(.{3,140}?)(?=\s+\b(?:net\s*(?:wt|weight|qty|quantity)|m\.?r\.?p\.?|packed|pkd|consumer\s+care|customer\s+care|unit\s+sale\s+price)\b|$)"
+    maker = extract_group(compact, maker_pattern)
+    maker_ok = maker != "Not detected"
+    product_name = extract_product_name(compact)
+    product_ok = product_name != "Packaged Commodity"
+    usp_match = re.search(r"unit\s*(?:sale\s*)?price\s*[:.-]?\s*(?:rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*(\d+(?:\.\d+)?)?\s*(g|kg|ml|l)\b", compact, re.I)
+    usp_ok = bool(usp_match)
 
-    qty = extract(compact, r"(?:net\s*(?:wt|weight|qty|quantity)?\s*[:.-]?\s*)?\d+(?:\.\d+)?\s*(?:kg|g|gm|ml|l|litre|liter)\b")
+    qty = qty_match.group(0).strip() if qty_match else "Not detected"
     mrp = extract(compact, r"(?:mrp|maximum retail price|retail sale price)\s*[:.-]?\s*(?:rs\.?|₹)?\s*\d+(?:\.\d+)?")
-    date = extract(compact, r"(?:mfd|mfg|manufactur(?:ed|ing)|packed|pkd)\s*[:.-]?\s*[A-Za-z0-9/\- ]{3,20}")
+    care = extract_group(compact, r"\b(?:consumer|customer)\s+care\s*[:.-]?\s*(.{3,120}?)(?=\s+\b(?:unit\s+sale\s+price|net\s+(?:qty|quantity|weight)|m\.?r\.?p\.?)\b|$)")
+    usp = usp_match.group(0).strip() if usp_match else "Not confidently detected"
+    usp_status = "WARNING"
+    usp_details = "Unit sale price is checked where applicable."
+    if usp_match and qty_match:
+        mrp_number = re.search(r"\d+(?:\.\d+)?", mrp)
+        qty_number = float(qty_match.group(1))
+        qty_normalized = qty_number * 1000 if qty_unit in {"kg", "l"} else qty_number
+        basis_number = float(usp_match.group(2) or 1)
+        basis_unit = usp_match.group(3).lower()
+        basis_normalized = basis_number * 1000 if basis_unit in {"kg", "l"} else basis_number
+        same_dimension = (qty_unit in {"kg", "g", "gm", "gms", "grm", "grms"} and basis_unit in {"kg", "g"}) or (qty_unit in {"l", "ml", "mls", "ltr", "ltrs", "litre", "litres", "liter", "liters"} and basis_unit in {"l", "ml"})
+        if mrp_number and qty_normalized > 0 and same_dimension:
+            expected_usp = float(mrp_number.group(0)) / qty_normalized * basis_normalized
+            declared_usp = float(usp_match.group(1))
+            tolerance = max(0.05, expected_usp * 0.02)
+            if abs(declared_usp - expected_usp) <= tolerance:
+                usp_status = "COMPLIANT"
+                usp_details = f"Declared unit sale price matches the calculated value of Rs. {expected_usp:.2f}."
+            else:
+                usp_status = "NON_COMPLIANT"
+                usp_details = f"Declared unit sale price Rs. {declared_usp:.2f} does not match the calculated value Rs. {expected_usp:.2f}."
+        else:
+            usp_status = "WARNING"
+    elif usp_match:
+        usp_status = "WARNING"
 
     report = {
-        "product": item("Product Name", "Rule 6(1)(b)", "COMPLIANT" if product_ok else "WARNING", "Detected from front label" if product_ok else "Not confidently detected", "Common/generic product identity should be clearly declared."),
-        "manufacturer": item("Manufacturer / Packer", "Rule 6(1)(a)", "COMPLIANT" if maker_ok else "NON_COMPLIANT", "Declaration detected" if maker_ok else "Not detected", "Manufacturer/packer/importer identity and address are required."),
-        "quantity": item("Net Quantity", "Rule 6(1)(c)", "COMPLIANT" if qty_ok else "NON_COMPLIANT", qty, "Net quantity must use an approved standard unit."),
+        "product": item("Product Name", "Rule 6(1)(b)", "COMPLIANT" if product_ok else "WARNING", product_name if product_ok else "Not confidently detected", "Common/generic product identity should be clearly declared."),
+        "manufacturer": item("Manufacturer / Packer", "Rule 6(1)(a)", "COMPLIANT" if maker_ok else "NON_COMPLIANT", maker, "Manufacturer/packer/importer identity and address are required."),
+        "quantity": item("Net Quantity", "Rule 6(1)(c)", "COMPLIANT" if qty_ok else "NON_COMPLIANT", qty, "Net quantity must use an approved standard SI symbol; plural or altered symbols such as 'gms' are not accepted."),
         "mrp": item("MRP inclusive of taxes", "Rule 6(1)(e)", "COMPLIANT" if (mrp_ok and tax_ok) else "NON_COMPLIANT", mrp, "Retail sale price and inclusive-of-taxes declaration are checked."),
         "date": item("Manufacturing / Packing Date", "Rule 6(1)(d)", "COMPLIANT" if date_ok else "WARNING", date, "Month/year manufacturing or packing declaration is checked."),
-        "care": item("Consumer Care Details", "Rule 6(1)(da)", "COMPLIANT" if care_ok else "NON_COMPLIANT", "Contact details detected" if care_ok else "Not detected", "Consumer grievance/contact details are mandatory where applicable."),
-        "usp": item("Unit Sale Price", "Rule 6(11)", "COMPLIANT" if usp_ok else "WARNING", "Detected" if usp_ok else "Not confidently detected", "Unit sale price is checked where applicable."),
+        "care": item("Consumer Care Details", "Rule 6(1)(da)", "COMPLIANT" if care_ok else "NON_COMPLIANT", care if care_ok else "Not detected", "Consumer grievance/contact details are mandatory where applicable."),
+        "usp": item("Unit Sale Price", "Rule 6(11)", usp_status, usp, usp_details),
         "quality": item("OCR quality", "Evidence quality policy", "WARNING" if len(compact) < 80 else "COMPLIANT", f"{len(compact)} OCR characters", "Human review is recommended for unclear or incomplete label text."),
     }
 
@@ -87,10 +145,6 @@ def analyse_text(text: str):
     score = round((passes + warns * 0.5) / max(1, len(statuses)) * 100)
     overall = "FAIL" if fails else ("WARNING" if warns else "PASS")
 
-    words = re.findall(r"[A-Za-z][A-Za-z0-9&'\-]{2,}", compact[:180])
-    blacklist = {"net","weight","quantity","mrp","maximum","retail","price","manufactured","packed","consumer","care"}
-    name_words = [w for w in words if w.lower() not in blacklist][:5]
-    product_name = " ".join(name_words[:3]) or "Packaged Commodity"
     return report, overall, score, fails, warns, product_name
 
 
@@ -99,7 +153,7 @@ async def no_cache_root(request: Request, call_next):
     if request.url.path == "/":
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         html = html.replace("</head>", '<link rel="stylesheet" href="/static/immersive.css"><link rel="stylesheet" href="/static/login3d.css"><link rel="stylesheet" href="/static/unified-theme.css"></head>')
-        scripts = '<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="/static/immersive.js"></script><script src="/static/login3d.js"></script><script src="/static/direct-audit.js?v=20260907-pdfphotos2"></script>'
+        scripts = '<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script src="/static/immersive.js"></script><script src="/static/login3d.js"></script><script src="/static/direct-audit.js?v=20260915-accurate1"></script>'
         html = html.replace("</body>", scripts + "</body>")
         return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     return await call_next(request)
@@ -113,6 +167,33 @@ def health():
 @app.get("/api/analytics")
 def analytics():
     return {"pass_rate": 73.4, "total_audited": 128, "pass_count": 94, "violations_count": 26}
+
+
+@app.get("/api/sample/{sample_name}")
+def sample_audit(sample_name: str):
+    samples = {
+        "compliant": "Royal Delight Cookies. Net Quantity 200 g. MRP Rs. 60 inclusive of all taxes. Manufactured by Royal Foods India Pvt Ltd, Industrial Estate, Chennai 600032. Packed August 2026. Consumer Care: care@royalfoods.in, 1800-111-222. Unit Sale Price Rs. 30 per 100 g.",
+        "illegal_units": "Crunchy Masala Chips. Net Quantity 100 gms. MRP Rs. 20. Manufactured by Snack Foods Pvt Ltd, Mumbai 400001. Packed August 2026. Consumer Care: care@snackfoods.in, 1800-222-333.",
+        "mismatched_usp": "Himalayan Desi Ghee. Net Quantity 500 g. MRP Rs. 350 inclusive of all taxes. Manufactured by North Valley Foods Pvt Ltd, Delhi 110001. Packed July 2026. Consumer Care: support@northvalley.in. Unit Sale Price Rs. 60 per 100 g.",
+        "missing_grievance": "Fresh Farm Atta. Net Quantity 1 kg. MRP Rs. 120 inclusive of all taxes. Manufactured by ABC Foods Pvt Ltd, Coimbatore 641001. Packed August 2026. Unit Sale Price Rs. 12 per 100 g.",
+    }
+    if sample_name not in samples:
+        raise HTTPException(status_code=404, detail=f"Unknown benchmark sample: {sample_name}")
+    report, overall, score, fails, warns, product = analyse_text(samples[sample_name])
+    return {
+        "inspection_id": f"LM-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
+        "product_name": product,
+        "timestamp": datetime.now().isoformat(),
+        "overall_status": overall,
+        "compliance_score": score,
+        "compliance_grade": "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D",
+        "violations_count": fails,
+        "warnings_count": warns,
+        "panels": [],
+        "panels_count": 1,
+        "analysis_mode": "benchmark_text_plus_deterministic_rule_engine",
+        "audit_report": report,
+    }
 
 
 @app.post("/api/text-audit")
