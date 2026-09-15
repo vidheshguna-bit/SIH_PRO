@@ -224,7 +224,4 @@ def robust_analyse_text(text: str):
     return report, overall, score, fails, warns, product_name
 
 
-# production_app.text_audit resolves analyse_text from its module globals at request time.
-# Replacing that global keeps all existing endpoints, UI and PDF behavior unchanged.
-production_app.analyse_text = robust_analyse_text
 app = production_app.app
