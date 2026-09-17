@@ -80,20 +80,20 @@ class PreprocessingPipeline:
 
 class OCREngine:
     """
-    Multi-engine OCR wrapper with EasyOCR (PyTorch CRAFT + CRNN) as primary high-accuracy engine,
-    RapidOCR (PaddleOCR ONNX) as fallback, and automatic spatial coordinate clustering for Legal Metrology.
+    Multi-engine OCR wrapper with RapidOCR (PaddleOCR ONNX) as primary high-speed engine,
+    EasyOCR as fallback, and automatic spatial coordinate clustering for Legal Metrology.
     """
 
     def __init__(self, preferred_engine: Optional[str] = None):
         self._preferred_engine = (
-            preferred_engine or os.getenv("OCR_ENGINE", "easyocr")
+            preferred_engine or os.getenv("OCR_ENGINE", "rapidocr")
         ).lower()
         self._engine = None
         self._engine_type = "none"
         self._initialize_engine()
 
     def _initialize_engine(self):
-        # Prioritize preferred engine (default: easyocr)
+        # Prioritize preferred engine (default: rapidocr)
         if self._preferred_engine == "easyocr":
             if self._try_init_easyocr():
                 return
