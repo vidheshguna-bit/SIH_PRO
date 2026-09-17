@@ -40,7 +40,12 @@ app.add_middleware(
 
 @app.get("/health", tags=["system"])
 async def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "mode": "5layer_state_of_the_art_inspection",
+        "ocr_engine": ocr_pipeline.engine_type,
+        "version": "3.0.0"
+    }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
@@ -175,7 +180,21 @@ def _process_single_product_panels(files_data: List[tuple], product_label: Optio
 # AUDIT ENDPOINTS (Single Product & Multi-Panel)
 # ---------------------------------------------------------------------------
 
+class JsonImageData(BaseModel):
+    name: Optional[str] = "panel.jpg"
+    data: str
+
+class FastAuditJsonPayload(BaseModel):
+    images: List[JsonImageData]
+
+class TextAuditPayload(BaseModel):
+    texts: List[str]
+    filenames: List[str] = []
+
+
 @app.post("/api/audit")
+@app.post("/api/v4/audit-compatible")
+@app.post("/api/fast-audit")
 async def audit_product_labels(files: List[UploadFile] = File(...)):
     """
     Accepts 1 or more images representing multiple panels of a single product.
@@ -194,6 +213,78 @@ async def audit_product_labels(files: List[UploadFile] = File(...)):
         return JSONResponse(content=audit_result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Audit processing failed: {str(e)}")
+
+
+@app.post("/api/fast-audit-json")
+async def fast_audit_json(payload: FastAuditJsonPayload):
+    """
+    Accepts base64 data URLs from JSON clients.
+    Decodes and processes through the full 5-layer pipeline.
+    """
+    if not payload.images:
+        raise HTTPException(status_code=400, detail="No images provided.")
+
+    files_data = []
+    for img_obj in payload.images:
+        raw_b64 = img_obj.data
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            content = base64.b64decode(raw_b64)
+            files_data.append((img_obj.name or "panel.jpg", content))
+        except Exception:
+            continue
+
+    if not files_data:
+        raise HTTPException(status_code=400, detail="Failed to decode base64 image data.")
+
+    try:
+        audit_result = _process_single_product_panels(files_data)
+        return JSONResponse(content=audit_result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Audit processing failed: {str(e)}")
+
+
+@app.post("/api/text-audit")
+async def text_audit(payload: TextAuditPayload):
+    """
+    Accepts raw extracted OCR text and runs deterministic Legal Metrology validation.
+    """
+    if not payload.texts:
+        raise HTTPException(status_code=400, detail="No OCR text received.")
+
+    combined_text = "\n\n".join(payload.texts)
+    lines = [{"text": l.strip(), "bbox": [0, 0, 100, 20]} for l in combined_text.splitlines() if l.strip()]
+    tokens = []
+    for line in lines:
+        for word in line["text"].split():
+            tokens.append({"text": word, "bbox": [0, 0, 20, 20], "confidence": 0.95})
+
+    ocr_data = {
+        "full_extracted_text": combined_text,
+        "assembled_lines": lines,
+        "raw_tokens": tokens,
+    }
+    audit_verdict = rule_evaluator.evaluate(ocr_data)
+    inspection_id = f"LM-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    product_name = _extract_product_name(combined_text, audit_verdict["audit_report"], "Packaged Commodity")
+
+    audit_verdict["inspection_id"] = inspection_id
+    audit_verdict["product_name"] = product_name
+    audit_verdict["timestamp"] = datetime.now().isoformat()
+    audit_verdict["panels"] = [
+        {
+            "panel_index": i,
+            "filename": (payload.filenames[i] if i < len(payload.filenames) else f"panel-{i+1}"),
+            "ocr_text": t,
+            "token_count": len(t.split()),
+            "line_count": len(t.splitlines())
+        }
+        for i, t in enumerate(payload.texts)
+    ]
+    audit_verdict["panels_count"] = len(payload.texts)
+    AUDIT_STORE[inspection_id] = audit_verdict
+    return JSONResponse(content=audit_verdict)
 
 
 @app.post("/api/audit/bulk")

@@ -224,4 +224,7 @@ def robust_analyse_text(text: str):
     return report, overall, score, fails, warns, product_name
 
 
-app = production_app.app
+try:
+    from app import app
+except Exception:
+    app = production_app.app
