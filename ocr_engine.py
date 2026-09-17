@@ -80,36 +80,57 @@ class PreprocessingPipeline:
 
 class OCREngine:
     """
-    Multi-engine OCR wrapper with PaddleOCR / RapidOCR as primary high-speed ONNX engine,
-    and automatic spatial coordinate clustering for Legal Metrology text analysis.
+    Multi-engine OCR wrapper with EasyOCR (PyTorch CRAFT + CRNN) as primary high-accuracy engine,
+    RapidOCR (PaddleOCR ONNX) as fallback, and automatic spatial coordinate clustering for Legal Metrology.
     """
 
-    def __init__(self):
+    def __init__(self, preferred_engine: Optional[str] = None):
+        self._preferred_engine = (
+            preferred_engine or os.getenv("OCR_ENGINE", "easyocr")
+        ).lower()
         self._engine = None
         self._engine_type = "none"
         self._initialize_engine()
 
     def _initialize_engine(self):
-        # 1. Try RapidOCR (PaddleOCR ONNX Runtime port)
+        # Prioritize preferred engine (default: easyocr)
+        if self._preferred_engine == "easyocr":
+            if self._try_init_easyocr():
+                return
+            if self._try_init_rapidocr():
+                return
+        else:
+            if self._try_init_rapidocr():
+                return
+            if self._try_init_easyocr():
+                return
+
+        logger.warning("No hardware or local OCR engines available. Simulated fallback enabled.")
+        self._engine_type = "mock"
+
+    def _try_init_easyocr(self) -> bool:
+        try:
+            import warnings
+            warnings.filterwarnings("ignore", category=UserWarning)
+            import easyocr
+            self._engine = easyocr.Reader(['en'], gpu=False, verbose=False)
+            self._engine_type = "easyocr"
+            logger.info("EasyOCR engine (PyTorch CRAFT + CRNN) initialized successfully as primary OCR.")
+            return True
+        except Exception as e:
+            logger.warning(f"EasyOCR initialization failed: {e}. Trying fallback engines...")
+            return False
+
+    def _try_init_rapidocr(self) -> bool:
         try:
             from rapidocr_onnxruntime import RapidOCR
             self._engine = RapidOCR()
             self._engine_type = "rapidocr"
             logger.info("RapidOCR (PaddleOCR ONNX) engine initialized successfully.")
-            return
+            return True
         except Exception as e:
-            logger.warning(f"RapidOCR initialization failed: {e}. Checking secondary engines...")
-
-        # 2. Try EasyOCR
-        try:
-            import easyocr
-            self._engine = easyocr.Reader(['en'], gpu=False)
-            self._engine_type = "easyocr"
-            logger.info("EasyOCR engine initialized successfully.")
-            return
-        except Exception as e:
-            logger.warning(f"EasyOCR initialization failed: {e}. Fallback to simulated OCR enabled.")
-            self._engine_type = "mock"
+            logger.warning(f"RapidOCR initialization failed: {e}.")
+            return False
 
     @property
     def engine_type(self) -> str:
