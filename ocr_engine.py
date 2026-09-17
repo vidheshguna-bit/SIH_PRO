@@ -4,6 +4,7 @@ OCR Preprocessing & Spatial Coordinate Extraction Pipeline
 """
 
 import os
+import time
 import cv2
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
@@ -15,7 +16,8 @@ logger = logging.getLogger("OCREngine")
 class PreprocessingPipeline:
     """
     Advanced OpenCV Preprocessing Pipeline for real-world packaged commodity labels.
-    Handles packaging glare, foil reflections, uneven lighting, skew, and low contrast.
+    Eliminates plastic sheen, camera flash glare, foil reflections, uneven lighting, skew, and low contrast
+    using CLAHE, Bilateral Filtering, and Canny Edge Detection.
     """
 
     @staticmethod
@@ -26,8 +28,36 @@ class PreprocessingPipeline:
 
     @staticmethod
     def denoise_bilateral(gray_image: np.ndarray) -> np.ndarray:
-        """Preserve sharp text edges while suppressing package printing textures and grain."""
+        """Preserve sharp text edges while suppressing package printing textures, foil grain, and sheen."""
         return cv2.bilateralFilter(gray_image, d=7, sigmaColor=50, sigmaSpace=50)
+
+    @staticmethod
+    def detect_canny_edges(gray_image: np.ndarray, low_thresh: int = 80, high_thresh: int = 180) -> np.ndarray:
+        """Canny edge detection to isolate packaging boundaries and prominent principal display panel text contours."""
+        return cv2.Canny(gray_image, low_thresh, high_thresh)
+
+    @staticmethod
+    def suppress_glare(bgr_image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Eliminates plastic sheen and camera flash glare on shiny pouches and metallic foils.
+        Detects localized specular over-saturation in HSV color space without wiping out white labels.
+        """
+        hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+        
+        # Specular glare is high brightness and low saturation
+        raw_mask = cv2.inRange(hsv, np.array([0, 0, 250]), np.array([180, 25, 255]))
+        total_pixels = bgr_image.shape[0] * bgr_image.shape[1]
+        glare_ratio = float(np.count_nonzero(raw_mask)) / float(max(1, total_pixels))
+        
+        # Glare is localized specular highlights (typically 0.05% to 10% of total area).
+        # If > 12% is white, it is a white background/paper label, NOT specular glare!
+        if 0.0005 < glare_ratio < 0.12:
+            dilated_mask = cv2.dilate(raw_mask, np.ones((3, 3), np.uint8), iterations=1)
+            cleaned_bgr = cv2.inpaint(bgr_image, dilated_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+            return cleaned_bgr, dilated_mask
+        
+        return bgr_image, np.zeros_like(v)
 
     @staticmethod
     def deskew_image(image: np.ndarray) -> np.ndarray:
@@ -63,19 +93,38 @@ class PreprocessingPipeline:
             return image
 
     @classmethod
-    def enhance_for_ocr(cls, bgr_image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def enhance_for_ocr(cls, bgr_image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
         """
-        Executes full preprocessing chain.
+        Executes full Layer 1 Computer Vision preprocessing chain:
+        1. Specular glare & plastic sheen suppression
+        2. Orientation deskew
+        3. CLAHE adaptive lighting equalization
+        4. Bilateral edge-preserving denoising
+        5. Canny edge feature extraction
         Returns:
-            processed_bgr: Deskewed and contrast-optimized color image
-            processed_gray: Enhanced grayscale representation ready for text segmentation
+            processed_bgr: Deskewed, glare-attenuated, contrast-optimized color image
+            processed_gray: Enhanced grayscale representation ready for OCR text segmentation
+            canny_edges: Canny edge detection binary map
+            cv_metrics: Diagnostic computer vision metadata (edge density, glare coverage)
         """
-        deskewed = cls.deskew_image(bgr_image)
+        anti_glare_bgr, glare_mask = cls.suppress_glare(bgr_image)
+        deskewed = cls.deskew_image(anti_glare_bgr)
         gray = cv2.cvtColor(deskewed, cv2.COLOR_BGR2GRAY)
         clahe_gray = cls.apply_clahe(gray)
         denoised_gray = cls.denoise_bilateral(clahe_gray)
+        edges = cls.detect_canny_edges(denoised_gray, 80, 180)
         enhanced_bgr = cv2.cvtColor(denoised_gray, cv2.COLOR_GRAY2BGR)
-        return enhanced_bgr, denoised_gray
+
+        h, w = gray.shape[:2]
+        edge_density = float(np.count_nonzero(edges)) / float(max(1, edges.size))
+        glare_ratio = float(np.count_nonzero(glare_mask)) / float(max(1, glare_mask.size))
+
+        cv_metrics = {
+            "edge_density": round(edge_density, 4),
+            "glare_ratio": round(glare_ratio, 4),
+            "glare_suppressed": glare_ratio > 0.001
+        }
+        return enhanced_bgr, denoised_gray, edges, cv_metrics
 
 
 class OCREngine:
@@ -282,7 +331,8 @@ class OCREngine:
             raise TypeError("Expected image file path or numpy ndarray.")
 
         h, w = img_bgr.shape[:2]
-        enhanced_bgr, enhanced_gray = PreprocessingPipeline.enhance_for_ocr(img_bgr)
+        start_time = time.perf_counter()
+        enhanced_bgr, enhanced_gray, canny_edges, cv_metrics = PreprocessingPipeline.enhance_for_ocr(img_bgr)
         tokens = self.extract_tokens(enhanced_bgr)
         
         # If tokens are few, try on enhanced grayscale
@@ -294,13 +344,73 @@ class OCREngine:
 
         lines = self.assemble_lines(tokens)
         full_text = "\n".join([line["text"] for line in lines]) if lines else " ".join([t["text"] for t in tokens])
+        latency_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
+
+        mean_confidence = round(sum(t["confidence"] for t in tokens) / max(1, len(tokens)), 3) if tokens else 0.0
+        low_conf_count = sum(1 for t in tokens if t.get("confidence", 0.0) < 0.60)
+        needs_vlm_fallback = (mean_confidence < 0.65) or (len(tokens) < 4) or (low_conf_count >= max(2, int(len(tokens) * 0.4)))
 
         return {
             "image_dimensions": {"width": w, "height": h},
             "engine_used": self._engine_type,
+            "latency_ms": latency_ms,
+            "mean_confidence": mean_confidence,
+            "needs_vlm_fallback": needs_vlm_fallback,
+            "cv_metrics": cv_metrics,
             "token_count": len(tokens),
             "line_count": len(lines),
             "raw_tokens": tokens,
             "assembled_lines": lines,
             "full_extracted_text": full_text
         }
+
+
+# Global singleton and module-level functional entrypoints
+_GLOBAL_OCR_ENGINE: Optional[OCREngine] = None
+
+def get_ocr_engine() -> OCREngine:
+    """Returns or lazily creates a shared singleton instance of OCREngine."""
+    global _GLOBAL_OCR_ENGINE
+    if _GLOBAL_OCR_ENGINE is None:
+        _GLOBAL_OCR_ENGINE = OCREngine()
+    return _GLOBAL_OCR_ENGINE
+
+def preprocess_image(image: np.ndarray) -> np.ndarray:
+    """Applies CLAHE and bilateral filtering image enhancement."""
+    enhanced_bgr, _, _, _ = PreprocessingPipeline.enhance_for_ocr(image)
+    return enhanced_bgr
+
+def detect_canny_edges(image: np.ndarray, low_threshold: int = 80, high_threshold: int = 180) -> np.ndarray:
+    """Performs Canny edge detection on grayscale or BGR image."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    return PreprocessingPipeline.detect_canny_edges(gray, low_threshold, high_threshold)
+
+def suppress_glare(image: np.ndarray) -> np.ndarray:
+    """Suppresses localized camera glare/plastic sheen highlights while preserving white backgrounds."""
+    cleaned_bgr, _ = PreprocessingPipeline.suppress_glare(image)
+    return cleaned_bgr
+
+def extract_text_from_image(image_input) -> str:
+    """Fast extraction of textual content from an image using the active OCR engine."""
+    engine = get_ocr_engine()
+    result = engine.process(image_input)
+    return result.get("full_extracted_text", "")
+
+def run_ocr_with_metadata(image_input) -> Dict[str, Any]:
+    """
+    Executes full Layer 2 OCR with token coordinates, confidence scores,
+    processing latency, and VLM fallback necessity gating.
+    """
+    engine = get_ocr_engine()
+    result = engine.process(image_input)
+    return {
+        "raw_text": result.get("full_extracted_text", ""),
+        "boxes": [t.get("bbox") for t in result.get("raw_tokens", [])],
+        "tokens": result.get("raw_tokens", []),
+        "lines": result.get("assembled_lines", []),
+        "latency_ms": result.get("latency_ms", 0.0),
+        "mean_confidence": result.get("mean_confidence", 0.0),
+        "needs_vlm_fallback": result.get("needs_vlm_fallback", False),
+        "ocr_engine": result.get("engine_used", "none"),
+        "cv_metrics": result.get("cv_metrics", {}),
+    }
