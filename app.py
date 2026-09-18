@@ -58,7 +58,8 @@ async def health_check():
         "status": "ok",
         "mode": "5layer_state_of_the_art_inspection",
         "ocr_engine": ocr_pipeline.engine_type,
-        "version": "3.1.0"
+        "version": "3.2.0",
+        "clean_release": True
     }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
