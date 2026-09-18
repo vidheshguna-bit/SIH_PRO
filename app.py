@@ -26,7 +26,7 @@ from rule_engine import LegalMetrologyRuleEngine
 app = FastAPI(
     title="SmartMetrology AI (SIH26034)",
     description="AI-assisted extraction with deterministic Legal Metrology compliance validation",
-    version="3.0.0"
+    version="3.1.0"
 )
 
 app.add_middleware(
@@ -44,7 +44,7 @@ async def health_check():
         "status": "ok",
         "mode": "5layer_state_of_the_art_inspection",
         "ocr_engine": ocr_pipeline.engine_type,
-        "version": "3.0.0"
+        "version": "3.1.0"
     }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
