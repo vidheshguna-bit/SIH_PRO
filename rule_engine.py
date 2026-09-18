@@ -5,7 +5,10 @@ Deterministic Statutory Rule Engine under Legal Metrology (Packaged Commodities)
 
 import re
 import math
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any, Optional, Tuple
+
+from entity_extractor import RapidFuzzRepairEngine
 
 class LegalMetrologyRuleEngine:
     """
@@ -172,6 +175,9 @@ class LegalMetrologyRuleEngine:
 
         if not has_tax_clause:
             has_tax_clause = bool(tax_clause_pattern.search(full_text))
+            if not has_tax_clause:
+                has_tax_fuzz, _ = RapidFuzzRepairEngine.repair_tax_clause(full_text)
+                has_tax_clause = has_tax_fuzz
 
         # Associate token bbox if line bbox not found
         if not bbox and detected_mrp:
@@ -390,30 +396,36 @@ class LegalMetrologyRuleEngine:
         if declared_usp and usp_unit_str and mrp and base_qty and base_unit:
             # Parse denominator of USP
             # e.g., 'g', '100g', 'kg', 'ml', '100ml', 'l'
-            clean_usp_unit = usp_unit_str.replace(" ", "")
-            multiplier = 1.0
+            clean_usp_unit = usp_unit_str.replace(" ", "").lower()
+            multiplier_dec = Decimal("1")
 
             if clean_usp_unit in ['g', 'ml']:
-                multiplier = 1.0
+                multiplier_dec = Decimal("1")
             elif clean_usp_unit in ['100g', '100ml']:
-                multiplier = 100.0
+                multiplier_dec = Decimal("100")
             elif clean_usp_unit in ['kg', 'l']:
-                multiplier = 1000.0
+                multiplier_dec = Decimal("1000")
             elif clean_usp_unit == '10g':
-                multiplier = 10.0
+                multiplier_dec = Decimal("10")
 
-            # Expected USP = (MRP / total base quantity) * multiplier
-            expected_usp = (mrp / base_qty) * multiplier
-            abs_diff = abs(declared_usp - expected_usp)
-            relative_error = abs_diff / expected_usp if expected_usp > 0 else 1.0
+            # Statutory Decimal calculation with ROUND_HALF_UP (zero float rounding drift)
+            mrp_dec = Decimal(str(mrp))
+            base_qty_dec = Decimal(str(base_qty))
+            declared_usp_dec = Decimal(str(declared_usp))
+            expected_raw = (mrp_dec / base_qty_dec) * multiplier_dec
+            expected_usp_dec = expected_raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            expected_usp = float(expected_usp_dec)
 
-            # Allow 2% tolerance for rounding to 2 decimal places
-            if relative_error <= 0.03 or abs_diff <= 0.05:
+            abs_diff = abs(declared_usp_dec - expected_usp_dec)
+            rel_error = abs_diff / expected_usp_dec if expected_usp_dec > Decimal("0") else Decimal("1")
+
+            # Legal Metrology tolerance: within 0.05 or 3%
+            if rel_error <= Decimal("0.03") or abs_diff <= Decimal("0.05"):
                 math_valid = True
                 status = "COMPLIANT"
                 details = (
                     f"Unit Sale Price ₹ {declared_usp:.2f} / {usp_unit_str} is mathematically accurate. "
-                    f"Computed expected rate: ₹ {expected_usp:.2f} / {usp_unit_str} (MRP ₹{mrp:.2f} ÷ {base_qty:.0f}{base_unit} × {int(multiplier)})."
+                    f"Computed expected rate: ₹ {expected_usp:.2f} / {usp_unit_str} (MRP ₹{mrp:.2f} ÷ {base_qty:.0f}{base_unit} × {int(multiplier_dec)})."
                 )
             else:
                 math_valid = False
@@ -421,7 +433,7 @@ class LegalMetrologyRuleEngine:
                 details = (
                     f"MATHEMATICAL MISMATCH! Declared USP is ₹ {declared_usp:.2f} / {usp_unit_str}, "
                     f"but actual statutory calculation is ₹ {expected_usp:.2f} / {usp_unit_str} "
-                    f"(MRP ₹{mrp:.2f} ÷ {base_qty:.0f}{base_unit} × {int(multiplier)}). "
+                    f"(MRP ₹{mrp:.2f} ÷ {base_qty:.0f}{base_unit} × {int(multiplier_dec)}). "
                     f"Discrepancy exceeds legal tolerance under Rule 6(1)(11)."
                 )
         elif declared_usp:
@@ -534,7 +546,8 @@ class LegalMetrologyRuleEngine:
         bbox = None
 
         for line in lines:
-            text = line["text"]
+            raw_text = line["text"]
+            text = RapidFuzzRepairEngine.repair_phone_digits(raw_text)
             if not detected_phone:
                 p = phone_pattern.search(text)
                 if p:
@@ -549,13 +562,14 @@ class LegalMetrologyRuleEngine:
                         bbox = line["bbox"]
 
         # Global fallback
+        repaired_full = RapidFuzzRepairEngine.repair_phone_digits(full_text)
         if not detected_phone:
-            p = phone_pattern.search(full_text)
+            p = phone_pattern.search(repaired_full)
             if p:
                 detected_phone = p.group(0).strip()
 
         if not detected_email:
-            e = email_pattern.search(full_text)
+            e = email_pattern.search(repaired_full)
             if e:
                 detected_email = (e.group(1) if e.group(1) else e.group(0)).strip()
 
@@ -759,3 +773,33 @@ class LegalMetrologyRuleEngine:
             "passed_count": passed_count,
             "violations_summary": violations_summary
         }
+
+
+def verify_packaging_compliance(ocr_input) -> Dict[str, Any]:
+    """
+    Convenience functional wrapper to run full Legal Metrology statutory compliance audit.
+    Accepts raw string or OCR result dictionary.
+    """
+    if isinstance(ocr_input, str):
+        lines = [{"text": l.strip(), "bbox": [0, 0, 100, 20]} for l in ocr_input.splitlines() if l.strip()]
+        tokens = []
+        for line in lines:
+            for word in line["text"].split():
+                tokens.append({"text": word, "bbox": [0, 0, 20, 20], "confidence": 0.95})
+        ocr_data = {
+            "full_extracted_text": ocr_input,
+            "assembled_lines": lines,
+            "raw_tokens": tokens,
+        }
+    else:
+        ocr_data = ocr_input
+
+    engine = LegalMetrologyRuleEngine()
+    audit_res = engine.evaluate(ocr_data)
+    return {
+        "status": audit_res["overall_status"],
+        "score": audit_res["compliance_score"],
+        "grade": audit_res["compliance_grade"],
+        "violations": audit_res["violations_summary"],
+        "audit_report": audit_res["audit_report"],
+    }
