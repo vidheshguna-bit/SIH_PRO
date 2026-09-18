@@ -3,6 +3,22 @@
  * Complete Client Application: Live Google Lens AR Scanner + Multi-Panel Photo Audit
  */
 document.addEventListener("DOMContentLoaded", () => {
+  // Purge any legacy service workers or browser caches
+  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (const reg of registrations) {
+        reg.unregister();
+      }
+    }).catch(() => {});
+  }
+  if (typeof caches !== "undefined") {
+    caches.keys().then(names => {
+      for (const name of names) {
+        caches.delete(name);
+      }
+    }).catch(() => {});
+  }
+
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const esc = (v = "") => String(v).replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]));

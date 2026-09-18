@@ -1,1 +1,0 @@
-// SmartMetrology AI Direct Frontend
