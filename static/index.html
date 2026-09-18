@@ -24,14 +24,74 @@
     </section>
 
     <section class="screen" id="screen-scanner">
-      <div class="page-head"><div><span class="eyebrow">NEW INSPECTION</span><h1>Multi-Image Product Scanner</h1><p>Capture every declaration panel for complete statutory screening.</p></div><span class="secure-pill">● Secure inspection session</span></div>
-      <div class="stepper"><div class="step active"><b>1</b><span>Capture Images</span></div><i></i><div class="step"><b>2</b><span>AI Extraction</span></div><i></i><div class="step"><b>3</b><span>Rule Validation</span></div><i></i><div class="step"><b>4</b><span>Human Review</span></div><i></i><div class="step"><b>5</b><span>Report</span></div></div>
-      <article class="panel scanner-panel"><div class="panel-head"><div><h2>Product Label Images</h2><p>JPG or PNG · Good lighting · Text should be clearly readable</p></div><button class="btn btn-secondary" id="demo-scan">Load benchmark sample</button></div><input type="file" id="image-input" accept="image/*" multiple hidden><div class="upload-grid" id="upload-grid"><button class="upload-slot" data-index="0"><span>⌗</span><b>Front Image</b><small>Primary display panel</small><em>Required</em></button><button class="upload-slot" data-index="1"><span>⌗</span><b>Back Image</b><small>Declarations & consumer care</small><em>Required</em></button><button class="upload-slot" data-index="2"><span>⌗</span><b>Side Image</b><small>Nutrition / side panel</small><em>Optional</em></button><button class="upload-slot" data-index="3"><span>＋</span><b>Additional Label</b><small>Any extra declaration panel</small><em>Optional</em></button></div><div class="quality-guide"><b>Image quality guidance</b><span>✓ Keep label flat</span><span>✓ Avoid glare</span><span>✓ Capture all edges</span><span>✓ Minimum 1000px recommended</span></div><div class="action-row"><button class="btn btn-secondary" data-go="dashboard">Cancel</button><button class="btn btn-primary btn-lg" id="start-inspection" disabled>START INSPECTION →</button></div></article>
+      <div class="page-head"><div><span class="eyebrow">SMART INSPECTION MODES</span><h1>Packaging Compliance Scanner</h1><p>Point camera live at packaging or upload photos for full statutory Legal Metrology screening.</p></div><span class="secure-pill">● RapidOCR Active</span></div>
+      <div class="scanner-mode-tabs">
+        <button class="mode-tab active" id="tab-btn-lens" type="button"><span>📷</span> Live Google Lens Scanner (Point &amp; Hover)</button>
+        <button class="mode-tab" id="tab-btn-upload" type="button"><span>📁</span> Photo Upload &amp; Multi-Panel Analysis</button>
+      </div>
+
+      <!-- VIEW 1: GOOGLE LENS LIVE HOVER SCANNER -->
+      <div id="view-lens" class="scanner-view">
+        <div class="lens-viewfinder-container">
+          <div class="lens-video-wrapper">
+            <video id="lens-video" autoplay playsinline muted></video>
+            <canvas id="lens-canvas"></canvas>
+            <div class="lens-scanner-laser" id="lens-laser" style="display:none;"></div>
+            <div class="lens-viewfinder-controls">
+              <button class="btn btn-primary btn-lg" id="lens-camera-toggle" type="button">📷 Start Camera Feed</button>
+              <button class="btn btn-secondary" id="lens-switch-cam" type="button" style="display:none;">🔄 Flip Camera</button>
+              <button class="btn btn-success btn-lg" id="lens-capture-btn" type="button" style="display:none;">📸 Capture &amp; Full Audit</button>
+            </div>
+          </div>
+          <div class="lens-hud-sidebar">
+            <article class="hud-card">
+              <div class="hud-header">
+                <div>
+                  <h3>Live Statutory Watchdog</h3>
+                  <small style="color:var(--muted)">Continuous frame spotting under Legal Metrology Rules, 2011</small>
+                </div>
+                <span class="live-pulse" id="lens-live-status">Camera Standby</span>
+              </div>
+              <div class="hud-section">
+                <h4>🚨 MISSING ON THIS PACKAGE</h4>
+                <div id="lens-missing-list" class="hud-list">
+                  <p class="placeholder-text">Click "Start Camera Feed" and point camera at the product label to flag missing declarations live…</p>
+                </div>
+              </div>
+              <div class="hud-section">
+                <h4>✅ DETECTED DECLARATIONS</h4>
+                <div id="lens-detected-list" class="hud-list">
+                  <p class="placeholder-text">Waiting for package text detection…</p>
+                </div>
+              </div>
+              <div class="hud-section">
+                <h4>🧪 CHEMICAL &amp; ADDITIVE WATCHDOG</h4>
+                <div id="lens-chemical-list" class="hud-list">
+                  <p class="placeholder-text">No hazardous additives detected in current field of view.</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: PHOTO UPLOAD & MULTI-PANEL -->
+      <div id="view-upload" class="scanner-view" style="display:none;">
+        <article class="panel scanner-panel"><div class="panel-head"><div><h2>Product Label Images</h2><p>JPG or PNG · Good lighting · Text should be clearly readable</p></div><button class="btn btn-secondary" id="demo-scan" type="button">Load benchmark sample</button></div><input type="file" id="image-input" accept="image/*" multiple hidden><div class="upload-grid" id="upload-grid"><button class="upload-slot" data-index="0" type="button"><span>⌗</span><b>Front Image</b><small>Primary display panel</small><em>Required</em></button><button class="upload-slot" data-index="1" type="button"><span>⌗</span><b>Back Image</b><small>Declarations &amp; consumer care</small><em>Required</em></button><button class="upload-slot" data-index="2" type="button"><span>⌗</span><b>Side Image</b><small>Nutrition / side panel</small><em>Optional</em></button><button class="upload-slot" data-index="3" type="button"><span>＋</span><b>Additional Label</b><small>Any extra declaration panel</small><em>Optional</em></button></div><div class="quality-guide"><b>Image quality guidance</b><span>✓ Keep label flat</span><span>✓ Avoid glare</span><span>✓ Capture all edges</span><span>✓ Minimum 1000px recommended</span></div><div class="action-row"><button class="btn btn-secondary" data-go="dashboard" type="button">Cancel</button><button class="btn btn-primary btn-lg" id="start-inspection" type="button" disabled>START INSPECTION →</button></div></article>
+      </div>
     </section>
 
     <section class="screen" id="screen-processing"><div class="processing-layout"><article class="panel processing-card"><div class="ai-orb"><span></span></div><span class="eyebrow">SMARTMETROLOGY AI PIPELINE</span><h1>Analysing product declarations</h1><p>Images are processed within the secure inspection workflow.</p><div class="progress-track"><div id="pipeline-progress"></div></div><strong id="progress-label">0% complete</strong><div class="pipeline-steps" id="pipeline-steps"></div></article><article class="panel ocr-preview"><div class="panel-head"><div><h2>Live OCR Preview</h2><p>Extracted label text appears during processing</p></div><span class="confidence" id="ocr-confidence">—</span></div><pre id="ocr-live">Waiting for text region detection…</pre><div class="technical-note"><b>How decisions are made</b><p>AI/NLP maps label text into structured fields. Compliance is evaluated only by the deterministic, versioned Rule Engine.</p></div></article></div></section>
 
-    <section class="screen" id="screen-extracted"><div class="page-head"><div><span class="eyebrow">AI/NLP EXTRACTION</span><h1>Extracted Product Information</h1><p>Verify declarations before deterministic validation.</p></div><div class="head-actions"><button class="btn btn-secondary" id="edit-all">Edit fields</button><button class="btn btn-primary" data-go="compliance">VALIDATE AGAINST RULES →</button></div></div><div class="review-alert warning"><b>⚠ Human verification required</b><span>Fields below 85% confidence are marked for inspector review.</span></div><div class="field-grid" id="field-grid"></div></section>
+    <section class="screen" id="screen-extracted">
+      <div class="page-head"><div><span class="eyebrow">AI/NLP EXTRACTION</span><h1>Extracted Product Information</h1><p>Verify declarations before deterministic validation.</p></div><div class="head-actions"><button class="btn btn-secondary" id="edit-all">Edit fields</button><button class="btn btn-primary" data-go="compliance">VALIDATE AGAINST RULES →</button></div></div>
+      <div class="review-alert warning"><b>⚠ Human verification required</b><span>Fields below 85% confidence are marked for inspector review.</span></div>
+      <div class="field-grid" id="field-grid"></div>
+      <article class="panel" style="margin-top:18px;">
+        <div class="panel-head"><div><h2>Raw Extracted OCR Text</h2><p>Direct characters extracted from packaging via RapidOCR</p></div><span class="badge pass">RapidOCR ONNX</span></div>
+        <pre id="extracted-raw-text" style="margin:16px;padding:16px;background:#081f3d;color:#7dd3fc;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:240px;overflow:auto;">Waiting for extraction…</pre>
+      </article>
+    </section>
 
     <section class="screen" id="screen-compliance"><div class="result-hero fail"><div><span class="eyebrow">DETERMINISTIC RULE ENGINE RESULT</span><h1 id="result-status">NON-COMPLIANT</h1><p id="result-copy">Statutory declaration failures require inspector review.</p></div><div class="score-ring"><strong id="screening-score">82%</strong><span>Screening score</span></div></div><div class="result-counts"><div><span class="badge pass">PASS</span><strong id="pass-count">5</strong></div><div><span class="badge warning">WARNING</span><strong id="warn-count">1</strong></div><div><span class="badge fail">FAIL</span><strong id="fail-count">2</strong></div></div><article class="panel"><div class="panel-head"><div><h2>Compliance Requirements</h2><p>Rule Engine v2.1 · Rules effective for inspection date</p></div><span class="rule-lock">🔒 Deterministic decision</span></div><div class="table-wrap"><table><thead><tr><th>Requirement</th><th>Status</th><th>Confidence</th><th>Explanation</th></tr></thead><tbody id="compliance-body"></tbody></table></div><div class="action-row"><button class="btn btn-secondary" data-go="evidence">VIEW VIOLATIONS</button><button class="btn btn-secondary" data-go="evidence">VIEW EVIDENCE</button><button class="btn btn-primary" data-go="review">REVIEW RESULT →</button></div></article></section>
 

@@ -169,6 +169,9 @@ def _process_single_product_panels(files_data: List[tuple], product_label: Optio
     audit_verdict["timestamp"] = datetime.now().isoformat()
     audit_verdict["panels"] = panels_data
     audit_verdict["panels_count"] = len(panels_data)
+    audit_verdict["full_extracted_text"] = aggregated_ocr["full_extracted_text"]
+    audit_verdict["raw_tokens"] = aggregated_ocr["raw_tokens"]
+    audit_verdict["assembled_lines"] = aggregated_ocr["assembled_lines"]
 
     # Save into in-memory ledger
     AUDIT_STORE[inspection_id] = audit_verdict
@@ -177,7 +180,7 @@ def _process_single_product_panels(files_data: List[tuple], product_label: Optio
 
 
 # ---------------------------------------------------------------------------
-# AUDIT ENDPOINTS (Single Product & Multi-Panel)
+# AUDIT ENDPOINTS (Single Product, Live Lens AR & Multi-Panel)
 # ---------------------------------------------------------------------------
 
 class JsonImageData(BaseModel):
@@ -190,6 +193,9 @@ class FastAuditJsonPayload(BaseModel):
 class TextAuditPayload(BaseModel):
     texts: List[str]
     filenames: List[str] = []
+
+class LensFramePayload(BaseModel):
+    image: str  # data:image/jpeg;base64,... or raw base64 string
 
 
 @app.post("/api/audit")
@@ -285,6 +291,164 @@ async def text_audit(payload: TextAuditPayload):
     audit_verdict["panels_count"] = len(payload.texts)
     AUDIT_STORE[inspection_id] = audit_verdict
     return JSONResponse(content=audit_verdict)
+
+
+def _analyze_lens_frame(cv_img: np.ndarray) -> Dict[str, Any]:
+    h, w = cv_img.shape[:2]
+    ocr_res = ocr_pipeline.process(cv_img)
+    audit = rule_evaluator.evaluate(ocr_res)
+
+    rep = audit.get("audit_report", {})
+    detected_declarations = []
+    missing_declarations = []
+
+    rule_mappings = [
+        ("rule_6_1_e_mrp", "Maximum Retail Price (MRP)", "Rule 6(1)(e)", "MRP declaration with 'inclusive of all taxes' is mandatory under Rule 6(1)(e)."),
+        ("rule_6_1_c_net_quantity", "Net Quantity", "Rule 6(1)(c) & Rule 12", "Net quantity declaration in standard SI units (g, kg, ml, l) is mandatory under Rule 6(1)(c) and Rule 12."),
+        ("rule_6_1_11_unit_sale_price", "Unit Sale Price (USP)", "Rule 6(1)(11)", "Unit sale price per g/100g/ml/100ml must match MRP/Quantity under Rule 6(1)(11)."),
+        ("rule_6_1_d_mfg_date", "Date of Manufacture / Packing", "Rule 6(1)(d)", "Month and year of manufacture or packing is mandatory under Rule 6(1)(d)."),
+        ("rule_6_1_da_consumer_grievance", "Consumer Grievance Helpline & Email", "Rule 6(1)(da)", "Consumer grievance telephone/toll-free number and email address are mandatory under Rule 6(1)(da)."),
+        ("rule_6_1_a_manufacturer", "Manufacturer / Packer Details", "Rule 6(1)(a)", "Name and complete address of the manufacturer, packer or importer is mandatory under Rule 6(1)(a)."),
+        ("rule_6_1_b_commodity_name", "Common Generic Commodity Name", "Rule 6(1)(b)", "Generic or common name of the commodity is mandatory under Rule 6(1)(b).")
+    ]
+
+    for key, name, rule_no, desc in rule_mappings:
+        item = rep.get(key, {})
+        status = item.get("status", "FAIL")
+        det_val = item.get("detected_value")
+        details = item.get("details", "")
+        bbox = item.get("bbox_reference")
+
+        norm_bbox = None
+        if bbox and len(bbox) == 4 and w > 0 and h > 0:
+            norm_bbox = [
+                round(bbox[0] / w, 4),
+                round(bbox[1] / h, 4),
+                round(bbox[2] / w, 4),
+                round(bbox[3] / h, 4)
+            ]
+
+        if status == "COMPLIANT":
+            detected_declarations.append({
+                "key": key,
+                "name": name,
+                "rule": rule_no,
+                "status": "COMPLIANT",
+                "badge": "COMPLIANT",
+                "color": "#16a34a",
+                "detected_value": det_val or "Present",
+                "details": details,
+                "bbox": bbox,
+                "normalized_bbox": norm_bbox
+            })
+        elif status == "WARNING":
+            detected_declarations.append({
+                "key": key,
+                "name": name,
+                "rule": rule_no,
+                "status": "WARNING",
+                "badge": "WARNING",
+                "color": "#d97706",
+                "detected_value": det_val or "Partial",
+                "details": details,
+                "bbox": bbox,
+                "normalized_bbox": norm_bbox
+            })
+        else:
+            missing_declarations.append({
+                "key": key,
+                "name": name,
+                "rule": rule_no,
+                "status": "MISSING",
+                "badge": "MISSING",
+                "color": "#dc2626",
+                "details": details or desc,
+                "statutory_consequence": "Statutory offense punishable under Section 36 of Legal Metrology Act, 2009."
+            })
+
+    # Detect chemical additives in extracted text for consumer health awareness
+    text_lower = ocr_res.get("full_extracted_text", "").lower()
+    chemical_alerts = []
+    chemical_db = [
+        ("INS 102", "Tartrazine", "Yellow synthetic azo dye", "CAUTION", "May trigger hyperactivity or allergies in children."),
+        ("INS 110", "Sunset Yellow", "Orange synthetic dye", "CAUTION", "Associated with hypersensitivity reactions."),
+        ("INS 122", "Carmoisine", "Red synthetic dye", "AVOID", "Restricted in several international food codes."),
+        ("INS 211", "Sodium Benzoate", "Chemical preservative", "CAUTION", "Forms benzene in presence of Vitamin C / heat."),
+        ("INS 319", "TBHQ", "Synthetic antioxidant", "CAUTION", "Strict limits under FSSAI regulations."),
+        ("INS 621", "MSG (Ajinomoto)", "Flavour enhancer", "SAFE", "Safe for general population; caution if MSG-sensitive."),
+        ("INS 951", "Aspartame", "Artificial sweetener", "CAUTION", "Contains phenylalanine; contraindicated for PKU patients."),
+        ("INS 955", "Sucralose", "Non-caloric sweetener", "SAFE", "Standard non-nutritive sweetener."),
+        ("Palm Oil", "Refined Palm Oil", "Saturated vegetable oil", "CAUTION", "High in saturated fatty acids (approx 50%).")
+    ]
+    for code, name_chem, category, rating, advisory in chemical_db:
+        if code.lower() in text_lower or name_chem.lower() in text_lower:
+            chemical_alerts.append({
+                "code": code,
+                "name": name_chem,
+                "category": category,
+                "rating": rating,
+                "color": "#16a34a" if rating == "SAFE" else "#d97706" if rating == "CAUTION" else "#dc2626",
+                "advisory": advisory
+            })
+
+    return {
+        "overall_status": audit.get("overall_status", "FAIL"),
+        "compliance_score": audit.get("compliance_score", 0),
+        "compliance_grade": audit.get("compliance_grade", "F"),
+        "tokens_count": ocr_res.get("token_count", 0),
+        "lines_count": ocr_res.get("line_count", 0),
+        "raw_text": ocr_res.get("full_extracted_text", ""),
+        "detected_declarations": detected_declarations,
+        "missing_declarations": missing_declarations,
+        "chemical_alerts": chemical_alerts,
+        "tokens": [
+            {
+                "text": t["text"],
+                "confidence": t["confidence"],
+                "bbox": t["bbox"],
+                "normalized_bbox": [
+                    round(t["bbox"][0] / w, 4),
+                    round(t["bbox"][1] / h, 4),
+                    round(t["bbox"][2] / w, 4),
+                    round(t["bbox"][3] / h, 4)
+                ] if w > 0 and h > 0 else None
+            }
+            for t in ocr_res.get("raw_tokens", [])
+        ],
+        "audit_report": rep
+    }
+
+
+@app.post("/api/lens-detect")
+async def api_lens_detect(payload: LensFramePayload):
+    """
+    Real-time Google Lens AR detection endpoint.
+    Accepts webcam video frames (base64 data URL) and returns live detected vs missing items.
+    """
+    raw_b64 = payload.image
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        content = base64.b64decode(raw_b64)
+        cv_img = _read_image_bytes(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image frame: {e}")
+
+    result = _analyze_lens_frame(cv_img)
+    return JSONResponse(content=result)
+
+
+@app.post("/api/lens-detect-file")
+async def api_lens_detect_file(file: UploadFile = File(...)):
+    """Multipart upload version of live lens detection."""
+    content = await file.read()
+    try:
+        cv_img = _read_image_bytes(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image file: {e}")
+
+    result = _analyze_lens_frame(cv_img)
+    return JSONResponse(content=result)
 
 
 @app.post("/api/audit/bulk")
