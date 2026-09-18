@@ -1,11 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "mkdir -p public/static && cp -R static/. public/static/ && cp static/index.html public/index.html",
+  "outputDirectory": "public",
   "rewrites": [
     { "source": "/api/audit", "destination": "https://sih-pro-legal-metrology.onrender.com/api/v4/audit-compatible" },
     { "source": "/api/:path*", "destination": "https://sih-pro-legal-metrology.onrender.com/api/:path*" },
     { "source": "/health", "destination": "https://sih-pro-legal-metrology.onrender.com/health" },
     { "source": "/static/style.css", "destination": "/static/immersive.css" },
-    { "source": "/static/script.js", "destination": "/static/bootstrap.js" },
-    { "source": "/", "destination": "/static/index.html" }
+    { "source": "/static/script.js", "destination": "/static/bootstrap.js" }
   ]
 }
