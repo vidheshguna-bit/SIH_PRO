@@ -415,12 +415,12 @@ class OCREngine:
 
     def process(self, image_input) -> Dict[str, Any]:
         """
-        Complete multi-scale OCR pipeline:
-        1. Input reading (filepath or numpy array)
-        2. Standard enhanced BGR preprocessing (CLAHE + bilateral + unsharp)
-        3. 2x bicubic upscaled pass (for small/fine text that is sub-10px at original resolution)
-        4. High-contrast adaptive threshold pass (for faded/stamped expiry dates and inkjet prints)
-        5. Multi-pass token merge and IoU deduplication
+        High-accuracy, high-throughput OCR pipeline:
+        1. Dimension normalization (prevents slow processing / OOM on phone camera photos, ensures fine print legibility)
+        2. Glare suppression (removes camera flash highlights on shiny plastic/metallic foil pouches)
+        3. Orientation deskew (aligns angled labels)
+        4. Primary RapidOCR inference in color space
+        5. Smart adaptive contrast retry ONLY if tokens < 3 (recovers faint/inkjet stamped text)
         6. Spatial line assembly
         """
         if isinstance(image_input, str):
@@ -430,43 +430,42 @@ class OCREngine:
             if img_bgr is None:
                 raise ValueError(f"Failed to read image from {image_input}")
         elif isinstance(image_input, np.ndarray):
-            img_bgr = image_input
+            img_bgr = image_input.copy()
         else:
             raise TypeError("Expected image file path or numpy ndarray.")
 
-        h, w = img_bgr.shape[:2]
+        h_orig, w_orig = img_bgr.shape[:2]
         start_time = time.perf_counter()
 
-        # --- PASS 1: Standard enhanced image ---
-        enhanced_bgr, enhanced_gray, canny_edges, cv_metrics = PreprocessingPipeline.enhance_for_ocr(img_bgr)
-        tokens_pass1 = self.extract_tokens(enhanced_bgr, scale_factor=1.0)
-        logger.info(f"OCR Pass 1 (standard): {len(tokens_pass1)} tokens from {w}x{h} image")
+        # 1. Normalize dimensions for optimal ONNX inference speed & memory
+        scale_factor = 1.0
+        max_dim = max(h_orig, w_orig)
+        if max_dim > 1600:
+            scale_factor = 1440.0 / max_dim
+            new_w = int(w_orig * scale_factor)
+            new_h = int(h_orig * scale_factor)
+            img_proc = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        elif max_dim < 700:
+            scale_factor = 1000.0 / max_dim
+            new_w = int(w_orig * scale_factor)
+            new_h = int(h_orig * scale_factor)
+            img_proc = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        else:
+            img_proc = img_bgr
 
-        all_tokens = list(tokens_pass1)
+        # 2. Glare suppression & deskew
+        clean_bgr, glare_mask = PreprocessingPipeline.suppress_glare(img_proc)
+        clean_bgr = PreprocessingPipeline.deskew_image(clean_bgr)
 
-        # --- PASS 2: 2x upscale (only if image is smaller than 1600px wide) ---
-        if w < 1600 and self._engine_type != "mock":
-            try:
-                upscaled_bgr = PreprocessingPipeline.upscale_for_ocr(enhanced_bgr, scale=2.0)
-                tokens_pass2 = self.extract_tokens(upscaled_bgr, scale_factor=2.0)
-                logger.info(f"OCR Pass 2 (2x upscale): {len(tokens_pass2)} tokens from {upscaled_bgr.shape[1]}x{upscaled_bgr.shape[0]} image")
-                all_tokens.extend(tokens_pass2)
-            except Exception as e:
-                logger.warning(f"OCR Pass 2 upscale failed: {e}")
+        # 3. Primary OCR extraction (normalizing coordinates back to original image dimensions)
+        tokens = self.extract_tokens(clean_bgr, scale_factor=scale_factor)
 
-        # --- PASS 3: High-contrast adaptive threshold ---
-        if self._engine_type != "mock":
-            try:
-                hc_bgr = PreprocessingPipeline.prepare_high_contrast(img_bgr)
-                tokens_pass3 = self.extract_tokens(hc_bgr, scale_factor=1.0)
-                logger.info(f"OCR Pass 3 (high-contrast): {len(tokens_pass3)} tokens")
-                all_tokens.extend(tokens_pass3)
-            except Exception as e:
-                logger.warning(f"OCR Pass 3 high-contrast failed: {e}")
-
-        # --- Deduplication ---
-        tokens = self.deduplicate_tokens(all_tokens)
-        logger.info(f"After deduplication: {len(tokens)} unique tokens (from {len(all_tokens)} total candidates)")
+        # 4. Fallback: if fewer than 3 tokens detected, try adaptive CLAHE enhancement
+        if len(tokens) < 3 and self._engine_type != "mock":
+            enhanced_bgr, _, _, _ = PreprocessingPipeline.enhance_for_ocr(clean_bgr)
+            retry_tokens = self.extract_tokens(enhanced_bgr, scale_factor=scale_factor)
+            if len(retry_tokens) > len(tokens):
+                tokens = retry_tokens
 
         lines = self.assemble_lines(tokens)
         full_text = "\n".join([line["text"] for line in lines]) if lines else " ".join([t["text"] for t in tokens])
@@ -476,13 +475,19 @@ class OCREngine:
         low_conf_count = sum(1 for t in tokens if t.get("confidence", 0.0) < 0.60)
         needs_vlm_fallback = (mean_confidence < 0.60) or (len(tokens) < 4) or (low_conf_count >= max(2, int(len(tokens) * 0.4)))
 
+        total_pixels = img_proc.shape[0] * img_proc.shape[1]
+        glare_ratio = float(np.count_nonzero(glare_mask)) / float(max(1, total_pixels))
+
         return {
-            "image_dimensions": {"width": w, "height": h},
+            "image_dimensions": {"width": w_orig, "height": h_orig},
             "engine_used": self._engine_type,
             "latency_ms": latency_ms,
             "mean_confidence": mean_confidence,
             "needs_vlm_fallback": needs_vlm_fallback,
-            "cv_metrics": cv_metrics,
+            "cv_metrics": {
+                "glare_ratio": round(glare_ratio, 4),
+                "glare_suppressed": glare_ratio > 0.001
+            },
             "token_count": len(tokens),
             "line_count": len(lines),
             "raw_tokens": tokens,

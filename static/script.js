@@ -584,7 +584,7 @@ document.addEventListener("DOMContentLoaded", () => {
       buildFields();
       renderHistory();
       showScreen("extracted");
-      toast(`AI extraction completed for ${audit.product_name}.`);
+      toast(`AI extraction completed for ${audit.product_name || "Packaged Commodity"}.`);
 
     } catch (err) {
       clearInterval(timer);
