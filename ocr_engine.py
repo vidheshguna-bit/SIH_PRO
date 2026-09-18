@@ -231,7 +231,7 @@ class OCREngine:
     def _try_init_rapidocr(self) -> bool:
         try:
             from rapidocr_onnxruntime import RapidOCR
-            self._engine = RapidOCR()
+            self._engine = RapidOCR(use_angle_cls=False)
             self._engine_type = "rapidocr"
             logger.info("RapidOCR (PaddleOCR ONNX) engine initialized successfully.")
             return True

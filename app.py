@@ -4,6 +4,13 @@ FastAPI Backend Application serving Single/Multi-Panel Audits, Bulk Auditing, An
 """
 
 import os
+# Strict CPU thread limits to prevent multi-core memory blowup in cloud containers (Render 512MB limit)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import io
 import csv
 import base64
@@ -12,6 +19,13 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 import cv2
+# Limit OpenCV OpenCL and threads
+cv2.setNumThreads(1)
+try:
+    cv2.ocl.setUseOpenCL(False)
+except Exception:
+    pass
+
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse, Response, JSONResponse
@@ -86,11 +100,15 @@ class RuleRecord(BaseModel):
     version: int
 
 
-def _read_image_bytes(file_bytes: bytes) -> np.ndarray:
+def _read_image_bytes(file_bytes: bytes, max_dim: int = 1440) -> np.ndarray:
     nparr = np.frombuffer(file_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Could not decode image from provided bytes.")
+    h, w = img.shape[:2]
+    if max(h, w) > max_dim:
+        scale = max_dim / float(max(h, w))
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
     return img
 
 
@@ -121,13 +139,14 @@ def _process_single_product_panels(files_data: List[tuple], product_label: Optio
         cv_img = _read_image_bytes(content)
         ocr_result = ocr_pipeline.process(cv_img)
 
-        _, buffer = cv2.imencode('.png', cv_img)
+        # Encode lightweight JPEG for UI preview (saves 95% bandwidth and memory compared to uncompressed PNG)
+        _, buffer = cv2.imencode('.jpg', cv_img, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
         img_b64 = base64.b64encode(buffer).decode('utf-8')
 
         panel_info = {
             "panel_index": index,
             "filename": filename,
-            "image_b64": f"data:image/png;base64,{img_b64}",
+            "image_b64": f"data:image/jpeg;base64,{img_b64}",
             "dimensions": ocr_result["image_dimensions"],
             "token_count": ocr_result["token_count"],
             "line_count": ocr_result["line_count"],
