@@ -132,7 +132,7 @@ class LegalMetrologyRuleEngine:
             re.IGNORECASE
         )
         tax_clause_pattern = re.compile(
-            r'(?:incl(?:usive)?[\.\:\,\;\-]?\s*(?:of\s*)?all\s*taxes|incl[\.\:\,\;\-]?\s*taxes)',
+            r'(?:incl(?:usive)?\.?\s*(?:of\s*)?all\s*taxes|incl\.?\s*taxes)',
             re.IGNORECASE
         )
 
@@ -520,8 +520,7 @@ class LegalMetrologyRuleEngine:
             r'(?:1800[-\s]?[0-9]{3}[-\s]?[0-9]{3,4}|(?:\+91|0)?[-\s]?[6-9][0-9]{9}|\b[0-9]{3,4}[-\s]?[0-9]{7,8}\b)'
         )
         email_pattern = re.compile(
-            r'(?:\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|(?:email|e-mail|mail)[\s\.:]*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+))',
-            re.IGNORECASE
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         )
         grievance_kw_pattern = re.compile(
             r'(?:customer\s*care|consumer\s*care|helpline|toll\s*free|grievance|feedback|contact\s*us|reach\s*us|complaints)',
@@ -544,7 +543,7 @@ class LegalMetrologyRuleEngine:
             if not detected_email:
                 e = email_pattern.search(text)
                 if e:
-                    detected_email = (e.group(1) if e.group(1) else e.group(0)).strip()
+                    detected_email = e.group(0).strip()
                     if not bbox:
                         bbox = line["bbox"]
 
@@ -557,7 +556,7 @@ class LegalMetrologyRuleEngine:
         if not detected_email:
             e = email_pattern.search(full_text)
             if e:
-                detected_email = (e.group(1) if e.group(1) else e.group(0)).strip()
+                detected_email = e.group(0).strip()
 
         # Legal determination
         if detected_phone and detected_email:
