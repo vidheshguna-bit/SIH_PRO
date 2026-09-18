@@ -1,5 +1,6 @@
 *.py
 requirements.txt
+requirements-render.txt
 render.yaml
 samples/
 __pycache__/
